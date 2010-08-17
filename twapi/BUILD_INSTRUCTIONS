@@ -1,0 +1,158 @@
+NOTE: Build instructions for TWAPI 3.0 have changed significantly from
+previous versions. The source code management system has also moved from CVS 
+to Mercurial.
+
+What you need (or the official build environment):
+--------------------------------------------------
+
+- To compile the 32-bit version of TWAPI, you need Visual C++ 6.0. The 64-bit
+version is built with the compiler that ships with the SDK. The primary
+reason for not moving to later versions of Visual Studio is that these
+compilers use C runtime libraries that are present on every version
+of Windows. Later versions would require to ship the Microsoft runtime
+redistributable package.
+
+- Microsoft Platform SDK for Windows Server 2003 SP1. Earlier versions
+will not do. Later versions will but you may need to do some tweaking.
+It is unfortunate that you need to install a 350MB package just for
+some headers and libraries but that's life. When installing, make sure
+you include the AMD64 build environment if you want to do 64-bit
+builds. Also ensure you include the Web Workshop component as some
+Windows Shell headers are included there.
+
+- Some version of Mercurial to check code from the SourceForge repository.
+
+- Note a Tcl installation is no longer required. Appropriate headers and
+libraries are contained within the TWAPI directories.
+
+Here is the step-by-step procedure for compiling twapi on a PC:
+
+Source code checkout
+--------------------
+
+Clone the twapi repository from SourceForge.
+
+If you are using the command line Mercurial client, the command would be
+
+    hg clone http://twapi.hg.sourceforge.net:8000/hgroot/twapi/twapi my_twapi
+
+This will create a my_twapi/ subdirectory in your current working
+directory.
+
+For more detail about using Mercurial, you might want to
+start with the SourceForge Mercurial instructions at
+http://sourceforge.net/apps/trac/sourceforge/wiki/Mercurial.
+
+
+Customize for your environment
+------------------------------
+
+Edit the files twapi/common.inc and twapi/makefile to fix up paths
+specific to your environment. This is generally not required. If you
+are building full distributions, the zip and unzip commands are expected
+to be in your path. Otherwise, edit twapi/makefile to point them to
+the right place.
+
+
+Set up 32-bit environment (only for 32-bit builds)
+-------------------------
+
+In a DOS command window, set up the build environment by typing the commands
+
+     "c:\Program Files\Microsoft Visual Studio\vc98\vcvars32"
+     "c:\Program Files\Microsoft Platform SDK\setenv.cmd" /2000 /RETAIL
+
+Note the locations of the Visual Studio and SDK directories may be different
+on your system.
+
+
+Set up 64-bit environment (only for 64-bit builds)
+-------------------------
+
+In a DOS command window, set up the build environment by typing the command
+
+     "c:\Program Files\Microsoft Platform SDK\setenv.cmd" /XP64 /RETAIL
+
+NOTE: /XP64 and /RETAIL MUST BE IN UPPER CASE.
+
+The locations of the Visual Studio and SDK directories may be different
+on your system.
+
+Note building the extension or distribution only builds either the 32-bit
+or 64-bit versions. Each has to be built separately in their respective
+build environments.
+
+Building the extension
+----------------------
+
+There are several different variations of the extensions. These are
+described in the documentation in detail. Briefly, in the first
+variation, the Tcl script components in TWAPI are stored as separate
+files. The script files then load the DLL. This is "traditional" way
+mixed binary/script Tcl packages are distributed. In the second case,
+the scripts are embedded in the DLL itself as a resource so a single
+DLL is all the application needs. The third case is similar except
+that the scripts are stored in compressed form in the resource resulting
+in a smaller footprint.
+
+To build each of these, in either the 32- or 64-bit command windows above,
+cd to the twapi directory and type
+
+    nmake
+
+to build the first variation. Type
+
+   nmake EMBED_SCRIPT=plain
+
+to build the second, and type
+
+   nmake EMBED_SCRIPT=lzma
+
+to build the third. Note any other value of EMBED_SCRIPT will have the
+same effect as not defining it at all.
+
+The DLL will be built in the base\X86\release, base\x86\release_embed
+and base\x86\release_embed_lzma respectively. The 64-bit builds will
+use the AMD64 subdirectories instead of x86.
+
+In all cases, the documentation will be built under the doc subdirectory.
+
+Packaging the distribution
+--------------------------
+
+Several distribution mechanisms are supported - zipped Tcl package,
+single-file dll, Tcl module etc. In combination with the various build
+types described above, this means there are a large number of
+distribution variations possible.
+
+See the file "buildall.cmd" for the "official" variations.
+
+For example,
+
+    nmake distribution
+
+will build a zipped Tcl package containing the source scripts, stripped
+DLL and documentation. It includes a pkgIndex.tcl file so after unzipping,
+it can be loaded with the Tcl "package require twapi" command in any
+supported Tcl version.
+
+    nmake distribution EMBED_SCRIPT=lzma
+
+will also build a zipped Tcl package except that the Tcl scripts will
+be embedded in the DLL and documentation is not included.
+
+    nmake tmdistribution EMBED_SCRIPT=lzma
+
+will build a single file Tcl 8.5 module with scripts embedded in the DLL.
+It can be loaded using "package require twapi" in Tcl 8.5 or later.
+
+    nmake dlldistribution EMBED_SCRIPT=lzma
+
+will build a single file DLL distribution. This has to be loaded using
+the Tcl "load" command in any supported Tcl version.
+
+In call cases, the corresponding nmake command to build the binaries
+as described in the previous section must have been called first.
+
+Note that starkits are no longer supported as they are superceded by
+the single-file DLL distributions.
