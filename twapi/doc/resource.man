@@ -1,0 +1,261 @@
+[comment {-*- tcl -*- doctools manpage}]
+[manpage_begin "Resources" n ""]
+[copyright "2010 Ashok P. Nadkarni"]
+[moddesc "Resource handling"]
+[titledesc "Commands related to Windows file resources"]
+[require twapi]
+[description]
+[para]
+
+Windows resources are binary data that can be added to executable files.
+Examples include icons, strings and fonts.
+This module provides commands related to manipulation of these
+resources.
+
+[section "Windows Resources"]
+Resources are stored in Portable Executable format files (exe's and dll's).
+A resource has an associated name, type and a language.
+The name and type can be either integer values or strings.
+To retrieve a particular resource, you must know both the associated
+values, the type and the name, for that resource. When a resource type
+or name is a string, it must be explicitly enclosed in quotes. For example,
+[example "::twapi::read_resource \$h 14 {\"ICON3\"} 0"]
+and not
+[example "::twapi::read_resource \$h 14 \"ICON3\" 0"]
+or
+[example "::twapi::read_resource \$h 14 ICON3 0"]
+
+[para]
+To support
+localization, there can be several resources with the same type and
+name, but associated with different languages. These languages are
+identified by a 16 bit language identifier ([cmd LANGID]) as 
+described in the TWAPI [uri nls.html Internationalization] documentation.
+
+[para]
+TWAPI provides commands to retrieve and update resources as binary data.
+It does not provide any functionality related to constructing the actual
+binary data itself. Each resource type has a specific structure and
+it is up to the application to construct it appropriately.
+
+[section "Resource Types"]
+
+Windows defines certain standard resource types shown in the table below
+along with the corresponding [const #define] values from the SDK.
+
+[list_begin opt]
+[opt_def 1] RT_CURSOR - Cursor
+[opt_def 2] RT_BITMAP - Bitmap
+[opt_def 3] RT_ICON - Icon
+[opt_def 4] RT_MENU - Menu
+[opt_def 5] RT_DIALOG - Dialog
+[opt_def 6] RT_STRING - String (see [uri #stringresources "String Resources"])
+[opt_def 7] RT_FONTDIR - Font directory
+[opt_def 8] RT_FONT - Font
+[opt_def 9] RT_ACCELERATOR - Accelerator
+[opt_def 10] RT_RCDATA - Application defined raw data
+[opt_def 11] RT_MESSAGETABLE - Message table
+[opt_def 12] RT_GROUP_CURSOR - Hardware independent cursor
+[opt_def 14] RT_GROUP_ICON - Hardware independent icon
+[opt_def 16] RT_VERSION - Version
+[opt_def 17] RT_DLGINCLUDE - Name of C include file containing corresponding symbolic names of resources
+[opt_def 19] RT_PLUGPLAY - Plug and play
+[opt_def 20] RT_VXD - Vxd
+[opt_def 21] RT_ANICURSOR - Animated cursor
+[opt_def 22] RT_ANIICON - Animated icon
+[opt_def 23] RT_HTML - HTML
+[opt_def 24] RT_MANIFEST - Executable Manifest
+[list_end]
+
+[section "Locating and Loading Resources"]
+Manipulating a resource requires a Windows executable module
+handle for the corresponding
+executable file. The commands will accept [const NULL] or [const 0]
+for this handle corresponding the the main executable for the process.
+To retrieve or update resources in other executables or DLL's, the module
+must be first loaded through the
+[uri process.html#load_library [cmd load_library]] call.
+Generally, the [cmd -datafile] option should be passed to the
+[cmd load_library] command if the only purpose is to access or update
+resources.
+
+[para]
+When the resources in a module are no longer required, it must be
+released through [uri process.html#free_library [cmd free_library]]
+call.
+
+[para]
+Once the module is loaded, the content of a particular resource
+can be retrieved using [uri #read_resource [cmd read_resource]]
+and [uri #read_resource_string [cmd read_resource_string]].
+
+[para]
+You can also enumerate resources present in a module using the
+[uri #enumerate_resource_types [cmd enumerate_resource_types]]
+[uri #enumerate_resource_names [cmd enumerate_resource_names]]
+[uri #enumerate_resource_languages [cmd enumerate_resource_languages]]
+commands.
+
+[para]
+Note that resources themselves do not need to be explicitly freed up.
+In particular, [emph "do not try to close the resource handles"] through
+the [cmd CloseHandle] or [uri handles.html#close_handles [cmd close_handles]].
+
+
+[section "Updating Resources"]
+Updating a resource in a file requires that the file not be in use
+by any application (including the current process).
+The [uri #begin_resource_update [cmd begin_resource_update]] command
+prepares the file for update. One or more
+[uri #update_resource [cmd update_resource]] commands can be used to
+modify the resources in the file and
+[uri #delete_resource [cmd delete_resource]] commands can be used to
+delete resources.
+Finally, the
+the [uri #end_resource_update [cmd end_resource_update]] command
+is used to commit or discard the modifications.
+
+[section "String Resources"]
+Strings defined through a string table definition in a resource definition
+file are not directly stored in the resource binary. They are stored in
+string blocks, each containing 16 strings. 
+It is therefore not possible
+to directly retrieve or update a string based on its string id.
+
+[para]
+If you call [uri #read_resource [cmd read_resource]] with a resource type of
+[const 6] (STRING), the resource name or id has to actually be the id
+of the string block, not the string. The command
+[uri #resource_stringid_to_stringblockid [cmd resource_stringid_to_stringblockid]]
+will take a string id and return a pair consisting of the id of the 
+corresponding block and the index of the string within the block. The block
+id can be passed to [uri #read_resource [cmd read_resource]] to read
+the string block. Since this is in binary format, it needs to be converted
+into a list of strings using
+[uri #resource_stringblock_to_strings [cmd resource_stringblock_to_strings]].
+The string index returned from 
+[uri #resource_stringid_to_stringblockid [cmd resource_stringid_to_stringblockid]] can be used to then pick out the appropriate string from the this list.
+[para]
+If you are only interested in a single string, the command
+[uri #read_resource_string [cmd read_resource_string]] ensapsulates this
+entire process.
+[para]
+Updating strings in a resource involves multiple steps for the same reason.
+First, the string block has to be retrieved and converted to a list
+of strings as described above. The list must then be modified as desired
+and converted back to a string block using
+[uri #strings_to_resource_stringblock [cmd strings_to_resource_stringblock]]
+and then written out using [uri #update_resource [cmd update_resource]].
+[para]
+Deleting a string resource is similar. Once the list of strings in
+the appropriate block is retrieved, set the corresponding element in
+the list to an empty string before writing it back using
+[uri #update_resource [cmd update_resource]].
+[para]
+A peculiarity in the storage format for resource strings means it is not
+always possible to distinguish between a resource string that is not defined
+and a resource string that is defined with an empty value. An attempt
+to read an undefined resource string may either result in an error being
+generated, or in the return of an empty string.
+
+[section Commands]
+
+[list_begin definitions]
+
+[call [cmd begin_resource_update] [arg MODULEPATH] [opt [cmd -deleteall]]]
+Returns a handle to the file [arg MODULEPATH] to be updated.
+The returned handle must be closed through
+the [uri #end_resource_update [cmd end_resource_update]] command.
+If the option [cmd -deleteall] is specified, all existing resources
+in the file are deleted.
+
+[call [cmd delete_resource] [arg HMODULE] [arg RESTYPE] [arg RESNAME] [arg LANGID]]
+Deletes a resource from the specified module
+[arg HMODULE] which must be a handle previously retrieved via
+[uri #begin_resource_update [cmd begin_resource_update]].
+The resource is not actually deleted from the file until
+the [uri #end_resource_update [cmd end_resource_update]] command is called.
+
+
+[call [cmd end_resource_update] [arg HMODULE] [opt [cmd -discard]]]
+Closes a handle previously returned by the
+[uri #begin_resource_update [cmd begin_resource_update]] command.
+Any modifications made through [uri #update_resource [cmd update_resource]]
+are written to the file unless the [cmd -discard] option is specified
+in which case they are discarded.
+
+[call [cmd enumerate_resource_languages] [arg HMODULE] [arg RESTYPE] [arg RESNAME]]
+Returns a list of language identifiers for which the specified
+module contains a resource of type [arg RESTYPE] with name [arg RESNAME].
+[arg HMODULE] must be a handle previously retrieved via
+[uri process.html#load_library [cmd load_library]].
+
+
+[call [cmd enumerate_resource_names] [arg HMODULE] [arg RESTYPE]]
+Returns a list of the names of resources of type [arg RESTYPE] in the specified
+module.
+[arg HMODULE] must be a handle previously retrieved via
+[uri process.html#load_library [cmd load_library]].
+
+[call [cmd enumerate_resource_types] [arg HMODULE]]
+Returns a list of the types of resources in the specified module.
+[arg HMODULE] must be a handle previously retrieved via
+[uri process.html#load_library [cmd load_library]].
+
+[call [cmd read_resource] [arg HMODULE] [arg RESTYPE] [arg RESNAME] [arg LANGID]]
+Returns the content of a resource from the specified module
+[arg HMODULE] which must be a handle previously retrieved via
+[uri process.html#load_library [cmd load_library]].
+[nl]
+Note that If [arg RESTYPE] is [const 6], specifying a [const STRING] resource,
+[arg RESTYPE] is the id for a string block, not an individual string.
+The returned value is the binary data corresponding to the string block.
+To retrieve individual strings, use the
+[uri #read_resource_string [cmd read_resource_string]] command.
+
+[call [cmd read_resource_string] [arg HMODULE] [arg STRINGID] [arg LANGID]]
+Returns the string in the resource table for the module specified by
+[arg HMODULE] which must be a handle previously retrieved via
+[uri process.html#load_library [cmd load_library]].
+[nl]
+Because of the storage format used in string resources, it is not always
+possible to distinguish between a resource string that is not defined
+and a resource string that is defined with an empty value. An attempt
+to read an undefined resource string may either result in an error being
+generated, or in the return of an empty string.
+
+[call [cmd resource_stringblock_to_strings] [arg BINDATA]]
+Converts a binary resource string block to a list of strings. As every
+string block contains 16 strings, the returned list as exactly
+16 strings.
+
+[call [cmd resource_stringid_to_stringblockid] [arg STRINGID]]
+Maps a string resource id to a list containing the id of the
+corresponding string block in the resource and the index of the string
+within the block as described in [sectref "stringresources"].
+
+[call [cmd strings_to_resource_stringblock] [arg STRINGS]]
+Converts the list of strings in [arg STRINGS] to a binary resource string block
+that can be passed to [uri #update_resource [cmd update_resource]].
+The number of strings in [arg STRINGS] must not be more than 16 which
+is the number stored in a single resource string block. If fewer than 16
+strings are provided, they are stored as empty strings.
+
+[call [cmd update_resource] [arg HMODULE] [arg RESTYPE] [arg RESNAME] [arg LANGID] [arg RESDATA]]
+Updates a resource from the specified module
+[arg HMODULE] which must be a handle previously retrieved via
+[uri #begin_resource_update [cmd begin_resource_update]].
+If [arg RESTYPE] is [const 6], specifying a [const STRING] resource,
+[arg RESDATA] is the string to be stored in the resource, otherwise it
+should be the raw binary data for the resource in the type-specific format.
+[nl]
+The resource is not actually written out to the file until
+the [uri #end_resource_update [cmd end_resource_update]] command is called.
+
+[list_end]
+
+[keywords internationalization globalization localization locales language \
+     LCID LANGID "number formatting" "currency formatting" formatting \
+     "code page" "primary language" "sublanguage"]
+
+[manpage_end]
