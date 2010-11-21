@@ -1,0 +1,18 @@
+syntax: glob
+
+.hgignore
+
+# Emacs backups
+*~
+
+*.log
+*.orig
+*.pdb
+temp
+base/build
+doc/chm-build
+doc/website-build
+doc/website
+tools/h2c/*
+TAGS
+\#*#
