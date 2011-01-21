@@ -1,0 +1,555 @@
+
+#
+# Copyright (c) 2008, Ashok P. Nadkarni
+# All rights reserved.
+#
+# See the file LICENSE for license
+
+# This file contains tests for commands from the device.tcl
+
+package require tcltest
+eval tcltest::configure $argv
+
+source [file join [file dirname [info script]] testutil.tcl]
+load_twapi_package
+
+namespace eval twapi::device::test {
+    namespace import ::tcltest::test
+    ::tcltest::testConstraint win2k [twapi::min_os_version 5]
+    ::tcltest::testConstraint win6 [twapi::min_os_version 6]
+
+    ################################################################
+
+    test device_setup_class_name_to_guids-1.0 {
+        Get the guids for a device setup class name
+    } -constraints {
+        nt
+    } -body {
+        string tolower [::twapi::device_setup_class_name_to_guids "Net"]
+    } -result "{{4d36e972-e325-11ce-bfc1-08002be10318}}"
+
+    ################################################################
+
+    test device_setup_class_guid_to_name-1.0 {
+        Get the name for a device setup class guid
+    } -constraints {
+        nt
+    } -body {
+        ::twapi::device_setup_class_guid_to_name "{4D36E972-E325-11CE-bfc1-08002be10318}"
+    } -result Net
+
+    ################################################################
+
+    test get_devinfoset_registry_properties-1.0 {
+    } -constraints {
+        nt TBD
+    } -body {
+    } -result ""
+
+    ################################################################
+
+    test create_file-1.0 {
+        create_file new with default options
+    } -constraints {
+        nt
+    } -setup {
+        set fn [file join [tcltest::temporaryDirectory] [clock clicks]]
+    } -body {
+        twapi::close_handle [twapi::create_file $fn]
+        file exists $fn
+    } -cleanup {
+        file delete $fn
+    } -result 1
+
+    test create_file-1.1 {
+        create_file existing with default options
+    } -constraints {
+        nt
+    } -setup {
+        set fn [tcltest::makeFile "create_file-1.1" [clock clicks]]
+    } -body {
+        twapi::close_handle [twapi::create_file $fn]
+        # Content should not be modified/truncated
+        read_file $fn
+    } -result "create_file-1.1\n"
+
+    
+    test create_file-2.0 {
+        Create a file with a specific integrity value
+    } -constraints {
+        win6
+    } -body {
+        set fn [file join [tcltest::temporaryDirectory] [clock seconds]]
+        set secd [twapi::set_security_descriptor_integrity [twapi::new_security_descriptor] low 1]
+        twapi::close_handle [twapi::create_file $fn -secd $secd]
+        twapi::get_resource_integrity file $fn -label
+    } -result {low system_mandatory_label_no_write_up}
+
+    test create_file-3.0 {
+        create_file new with -createdisposition create_always
+    } -constraints {
+        nt
+    } -setup {
+        set fn [file join [tcltest::temporaryDirectory] [clock clicks]]
+    } -body {
+        twapi::close_handle [twapi::create_file $fn -createdisposition create_always]
+        read_file $fn
+    } -cleanup {
+        file delete $fn
+    } -result ""
+
+    test create_file-3.1 {
+        create_file existing with -createdisposition create_always
+    } -constraints {
+        nt
+    } -setup {
+        set fn [tcltest::makeFile "create_file-3.1" [clock clicks]]
+    } -body {
+        twapi::close_handle [twapi::create_file $fn -createdisposition create_always]
+        # Content should be truncated
+        read_file $fn
+    } -result ""
+
+    test create_file-3.2 {
+        create_file new with -createdisposition create_new
+    } -constraints {
+        nt
+    } -setup {
+        set fn [file join [tcltest::temporaryDirectory] [clock clicks]]
+    } -body {
+        twapi::close_handle [twapi::create_file $fn -createdisposition create_new]
+        read_file $fn
+    } -cleanup {
+        file delete $fn
+    } -result ""
+
+    test create_file-3.3 {
+        create_file existing with -createdisposition create_new
+    } -constraints {
+        nt
+    } -setup {
+        set fn [tcltest::makeFile "create_file-3.3" [clock clicks]]
+    } -body {
+        list [catch {twapi::create_file $fn -createdisposition create_new}] \
+            [lindex $::errorCode 0] [lindex $::errorCode 1] \
+            [string trimright [read_file $fn]]
+    } -result {1 TWAPI_WIN32 80 create_file-3.3}
+
+    test create_file-3.4 {
+        create_file new with -createdisposition open_always
+    } -constraints {
+        nt
+    } -setup {
+        set fn [file join [tcltest::temporaryDirectory] [clock clicks]]
+    } -body {
+        twapi::close_handle [twapi::create_file $fn -createdisposition open_always]
+        read_file $fn
+    } -cleanup {
+        file delete $fn
+    } -result ""
+
+    test create_file-3.5 {
+        create_file existing with -createdisposition open_always
+    } -constraints {
+        nt
+    } -setup {
+        set fn [tcltest::makeFile "create_file-3.5" [clock clicks]]
+    } -body {
+        twapi::close_handle [twapi::create_file $fn -createdisposition open_always]
+        # Content should not be truncated
+        read_file $fn
+    } -result "create_file-3.5\n"
+
+    test create_file-3.6 {
+        create_file new with -createdisposition open_existing
+    } -constraints {
+        nt
+    } -setup {
+        set fn [file join [tcltest::temporaryDirectory] [clock clicks]]
+    } -body {
+        list [catch {twapi::create_file $fn -createdisposition open_existing}] \
+            [lindex $::errorCode 0] [lindex $::errorCode 1]
+    } -result {1 TWAPI_WIN32 2}
+
+    test create_file-3.7 {
+        create_file existing with -createdisposition open_existing
+    } -constraints {
+        nt
+    } -setup {
+        set fn [tcltest::makeFile "create_file-3.7" [clock clicks]]
+    } -body {
+        twapi::close_handle [twapi::create_file $fn -createdisposition open_existing]
+        read_file $fn
+    } -result "create_file-3.7\n"
+
+    test create_file-3.8 {
+        create_file new with -createdisposition truncate_existing
+    } -constraints {
+        nt
+    } -setup {
+        set fn [file join [tcltest::temporaryDirectory] [clock clicks]]
+    } -body {
+        list [catch {twapi::create_file $fn -createdisposition truncate_existing -access generic_write}] \
+            [lindex $::errorCode 0] [lindex $::errorCode 1]
+    } -result {1 TWAPI_WIN32 2}
+
+    test create_file-3.9 {
+        create_file existing with -createdisposition truncate_existing
+    } -constraints {
+        nt
+    } -setup {
+        set fn [tcltest::makeFile "create_file-3.7" [clock clicks]]
+    } -body {
+        twapi::close_handle [twapi::create_file $fn -createdisposition truncate_existing -access generic_write]
+        read_file $fn
+    } -result ""
+
+    test create_file-4.0 {
+        create_file new file with -secd
+    } -constraints {
+        nt
+    } -setup {
+        set fn [file join [tcltest::temporaryDirectory] [clock clicks]]
+        set secd [twapi::new_security_descriptor -dacl [twapi::new_restricted_dacl $::env(USERNAME) generic_all]]
+    } -body {
+        twapi::close_handle [twapi::create_file $fn -secd $secd]
+        twapi::get_security_descriptor_dacl [twapi::get_resource_security_descriptor file $fn]
+    } -cleanup {
+        file delete $fn
+    } -result [list 2 [list [list 0 0 2032127 [twapi::map_account_to_sid $::env(USERNAME)]]]]
+
+    test create_file-5.0 {
+        create_file new file with -flags 0x20 (archive)
+    } -constraints {
+        nt
+    } -setup {
+        set fn [file join [tcltest::temporaryDirectory] [clock clicks]]
+        set fn2 [file join [tcltest::temporaryDirectory] [clock clicks]]
+    } -body {
+        twapi::close_handle [twapi::create_file $fn -flags 0x0]
+        twapi::close_handle [twapi::create_file $fn2 -flags 0x20]
+        list [file attributes $fn -archive] [file attributes $fn2 -archive]
+    } -cleanup {
+        file delete $fn
+        file delete $fn2
+    } -result [list 1 1]
+
+    test create_file-5.1 {
+        create_file new file with -flags 0x1 (readonly)
+    } -constraints {
+        nt
+    } -setup {
+        set fn [file join [tcltest::temporaryDirectory] [clock clicks]]
+        set fn2 [file join [tcltest::temporaryDirectory] [clock clicks]]
+    } -body {
+        twapi::close_handle [twapi::create_file $fn -flags 0x0]
+        twapi::close_handle [twapi::create_file $fn2 -flags 0x1]
+        list [file attributes $fn -readonly] [file attributes $fn2 -readonly]
+    } -cleanup {
+        file delete $fn
+        file delete $fn2
+    } -result [list 0 1]
+
+    test create_file-5.2 {
+        create_file new file with -flags 0x4 (system)
+    } -constraints {
+        nt
+    } -setup {
+        set fn [file join [tcltest::temporaryDirectory] [clock clicks]]
+        set fn2 [file join [tcltest::temporaryDirectory] [clock clicks]]
+    } -body {
+        twapi::close_handle [twapi::create_file $fn -flags 0x0]
+        twapi::close_handle [twapi::create_file $fn2 -flags 0x4]
+        list [file attributes $fn -system] [file attributes $fn2 -system]
+    } -cleanup {
+        file delete $fn
+        file delete $fn2
+    } -result [list 0 1]
+
+    test create_file-5.3 {
+        create_file new file with -flags 0x2 (hidden)
+    } -constraints {
+        nt
+    } -setup {
+        set fn [file join [tcltest::temporaryDirectory] [clock clicks]]
+        set fn2 [file join [tcltest::temporaryDirectory] [clock clicks]]
+    } -body {
+        twapi::close_handle [twapi::create_file $fn -flags 0x0]
+        twapi::close_handle [twapi::create_file $fn2 -flags 0x2]
+        list [file attributes $fn -hidden] [file attributes $fn2 -hidden]
+    } -cleanup {
+        file delete $fn
+        file delete $fn2
+    } -result [list 0 1]
+
+    test create_file-5.4 {
+        create_file new file with -flags 0x80 (normal)
+    } -constraints {
+        nt
+    } -setup {
+        set fn [file join [tcltest::temporaryDirectory] [clock clicks]]
+    } -body {
+        twapi::close_handle [twapi::create_file $fn -flags 0x80]
+        list [file attributes $fn -hidden] [file attributes $fn -system] [file attributes $fn -readonly]
+    } -cleanup {
+        file delete $fn
+    } -result [list 0 0 0]
+
+    test create_file-5.5 {
+        create_file new file with -flags 0x04000000 (delete on close)
+    } -constraints {
+        nt
+    } -setup {
+        set fn [file join [tcltest::temporaryDirectory] [clock clicks]]
+    } -body {
+        twapi::close_handle [twapi::create_file $fn -flags 0x04000000]
+        file exists $fn
+    } -result 0
+
+
+    set testnum 5
+    foreach opt {-access -inherit -share -templatefile} {
+        test create_file-$testnum.0 "create_file with $opt" -constraints {TBD} -body {} -result ""
+    }
+
+    ################################################################
+
+    test device_ioctl-1.0 {
+        Test a device ioctl
+    } -body {
+        # This uses device_ioctl
+        verify_kl_fields [twapi::get_volume_info $::env(HOMEDRIVE) -extents] {-extents}
+    } -result ""
+
+
+    ################################################################
+
+    proc device_notifier_test_handler {id event args} {
+        lappend ::device_test_notifications [linsert $args 0 $id $event]
+    }
+
+    proc device_arrival_removal_handler {id event args} {
+        lappend ::device_test_notifications [linsert $args 0 $id $event]
+        if {$event eq "deviceremovecomplete"} {
+            set ::device_notifications_done 1
+        }
+    }
+
+
+    test start_device_notifier-1.0 {
+        Start a device notifier
+    } -constraints {
+        userInteraction
+    } -body {
+        set ::device_test_notifications {}
+        set id [twapi::start_device_notifier "lappend ::device_test_notifications"]
+        pause "Please insert a USB device."
+        set after_id [after 2000 set ::device_notifications_done 1]
+        vwait ::device_notifications_done
+        after cancel $after_id
+        twapi::stop_device_notifier $id
+        pause "Please remove the USB device before continuing."
+        expr {[llength $::device_test_notifications] > 0}
+    } -result 1
+
+
+    test start_device_notifier-2.0 {
+        Start a device notifier for a specific interface
+    } -constraints {
+        userInteraction TBD
+    } -body {
+        set ::device_test_notifications {}
+        #        set id [twapi::start_device_notifier [namespace current]::device_notifier_test_handler]
+        set id [twapi::start_device_notifier [namespace current]::device_notifier_test_handler -deviceinterface TBD_WHAT_INTERFACEGUID_TO_USE?]
+        pause "Please insert a USB device."
+        set after_id [after 2000 set ::device_notifications_done 1]
+        vwait ::device_notifications_done
+        after cancel $after_id
+        twapi::stop_device_notifier $id
+        pause "Please remove the USB device before continuing."
+        expr {[llength $::device_test_notifications] > 0}
+    } -result 1
+
+    # Verify new drive arrival and removal
+    proc verify_device_notifications { notifications id ifc attrs v_msgs} {
+        upvar 1 $v_msgs msgs
+
+        set found_arrival 0
+        set found_removal 0
+        foreach notif $notifications {
+            set notif_id    [lindex $notif 0]
+            set notif_event [lindex $notif 1]
+            if {$notif_id ne $id} {
+                lappend msgs "Invalid notification id '$notif_id'. Expected '$id'"
+                continue
+            }
+            if {$notif_event eq "devnodes_changed"} {
+                continue
+            }
+            if {[lsearch -exact {devicearrival deviceremovecomplete} $notif_event] < 0} {
+                lappend msgs "Unexpected event '$notif_event'"
+                continue
+            }            
+
+            if {[lindex $notif 2] ne "volume"} {
+                continue
+            }
+
+            if {$notif_event eq "devicearrival"} {
+                set found_arrival 1
+            } else {
+                set found_removal 1
+            }
+            
+            set notif_drives [lindex $notif 3]
+            set notif_attrs  [lindex $notif 4]
+            if {![equal_sets $attrs $notif_attrs]} {
+                lappend msgs "Attributes do not match, got '[join $notif_attrs ,]', expected '[join $attrs ,]'"
+            }
+            # Verify the drives
+            if {[llength $notif_drives] == 0} {
+                lappend msgs "No drives listed in volume notification."
+            } else {
+                foreach drive $notif_drives {
+                    if {! [regexp {^[A-Z]:$} $drive]} {
+                        lappend msgs "Invalid drive '$drive'  listed in volume devicearrival notification."
+                    }
+                }
+            }
+        }
+        
+        if {! $found_arrival} {
+            lappend msgs "No devicearrival event encountered."
+        }
+
+        if {! $found_removal} {
+            lappend msgs "No deviceremovecomplete event encountered."
+        }
+    }
+
+    test start_device_notifier-2.1 {
+        Start a device notifier for volumes (USB device)
+    } -constraints {
+        userInteraction
+    } -body {
+        pause "Please remove the test USB device if currently inserted."
+        set ::device_test_notifications {}
+        set id [twapi::start_device_notifier [namespace current]::device_arrival_removal_handler -deviceinterface volume]
+        pause "Please insert and then remove the test USB device."
+        set after_id [after 15000 set ::device_notifications_done timeout]
+        vwait ::device_notifications_done
+        after cancel $after_id
+        twapi::stop_device_notifier $id
+        set msgs {}
+        verify_device_notifications $::device_test_notifications $id volume {} msgs
+        join $msgs \n
+    } -result {}
+
+    test start_device_notifier-2.2 {
+        Start a device notifier for volumes (CD mediachange)
+    } -constraints {
+        userInteraction
+    } -body {
+        pause "Please make sure CD-ROM tray is empty"
+        set ::device_test_notifications {}
+        set id [twapi::start_device_notifier [namespace current]::device_arrival_removal_handler -deviceinterface volume]
+        pause "Please insert a CD-ROM, wait for it to be recognized, then eject it."
+        set after_id [after 30000 set ::device_notifications_done timeout]
+        vwait ::device_notifications_done
+        after cancel $after_id
+        twapi::stop_device_notifier $id
+        set msgs {}
+        verify_device_notifications $::device_test_notifications $id volume {mediachange} msgs
+        join $msgs \n
+    } -result {}
+
+    test start_device_notifier-2.3 {
+        Start a device notifier for volumes (device arrival networkvolume)
+    } -constraints {
+        systemmodificationok
+    } -setup {
+        set dir [tcltest::makeDirectory [clock clicks]]
+        set share TWAPI_EXPORT_[clock clicks]
+        twapi::new_share $share [file nativename $dir]
+    } -body {
+        set ::device_test_notifications {}
+        set id [twapi::start_device_notifier [namespace current]::device_arrival_removal_handler -deviceinterface volume]
+        # Note - notifications are only generated if mapped to local device
+        set drive [twapi::connect_share \\\\127.0.0.1\\$share -localdevice *]
+        set after_id [after 15000 set ::device_notifications_done timeout]
+        twapi::disconnect_share $drive
+        vwait ::device_notifications_done
+        after cancel $after_id
+        twapi::stop_device_notifier $id
+        set msgs {}
+        verify_device_notifications  $::device_test_notifications $id volume {networkvolume} msgs
+        join $msgs \n
+    } -cleanup {
+        twapi::delete_share $share
+    } -result {}
+
+    test start_device_notifier-4.0 {
+        Start a device notifier for a handle
+    } -constraints {
+        userInteraction TBD
+    } -body {
+        Check the -handle option
+    } -result {}
+
+    test start_device_notifier-4.1 {
+        Start a device notifier for a handle (devicequeryremove allow)
+    } -constraints {
+        userInteraction TBD
+    } -body {
+        Check the -handle option
+    } -result {}
+
+
+    test start_device_notifier-4.2 {
+        Start a device notifier for a handle (devicequeryremove deny)
+    } -constraints {
+        userInteraction TBD
+    } -body {
+        Check the -handle option
+    } -result {}
+
+
+    ################################################################
+
+    test stop_device_notifier-1.0 {
+        Stop a device notifier
+    } -constraints {
+        systemmodificationok
+    } -setup {
+        set dir [tcltest::makeDirectory [clock clicks]]
+        set share TWAPI_EXPORT_[clock clicks]
+        twapi::new_share $share [file nativename $dir]
+    } -body {
+        patience stop_device_notifier-1.0
+        set ::device_test_notifications {}
+        set id [twapi::start_device_notifier [namespace current]::device_notifier_test_handler -deviceinterface volume]
+        set drive [twapi::connect_share \\\\127.0.0.1\\$share -localdevice *]
+        set after_id [after 1000 set ::device_notifications_done 1]
+        vwait ::device_notifications_done
+        after cancel $after_id
+
+        # Now stop notifications
+        set after_id [after 10000 set ::device_notifications_done 1]
+        twapi::disconnect_share $drive
+        twapi::stop_device_notifier $id
+        vwait ::device_notifications_done
+        after cancel $after_id
+        set msgs {}
+        verify_device_notifications  $::device_test_notifications $id volume {networkvolume} msgs
+        join $msgs \n
+    } -cleanup {
+        twapi::delete_share $share
+    } -result "No deviceremovecomplete event encountered."
+
+    ################################################################
+
+
+    ::tcltest::cleanupTests
+}
+
+namespace delete ::twapi::device::test

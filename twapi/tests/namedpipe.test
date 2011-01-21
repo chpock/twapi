@@ -1,0 +1,90 @@
+#
+# Copyright (c) 2010, Ashok P. Nadkarni
+# All rights reserved.
+#
+# See the file LICENSE for license
+
+# This file contains tests for commands from the services.tcl
+
+package require tcltest
+
+eval tcltest::configure $argv
+
+# Note npecho loads testutil and twapi
+source [file join [file dirname [info script]] npecho.tcl]
+
+namespace eval twapi::pipe::test {
+    namespace import ::tcltest::test
+
+    proc start_npecho_server {name} {
+        set control_channel [open "| [list [::tcltest::interpreter] npecho.tcl $name \\\\.\\pipe\\twapitest$name]" r+]
+        fconfigure $control_channel -blocking 0
+        expect $control_channel READY 5000
+        return $control_channel
+    }
+
+     ################################################################
+
+    test pipe-server-1.0 {
+        Test server using blocking I/O
+    } -setup {
+        set control_channel [start_npecho_server syncserver]
+    } -constraints {
+        nt
+    } -body {
+        foreach {msgs total last} [np_echo_client -name {\\.\pipe\twapitestsyncserver}] break
+        foreach {msgs2 total2 last2} [gets_timeout $control_channel 5000] break
+        set result ""
+        if {$msgs != $msgs2} {
+            append result "Mismatch in number of messages: $msgs != $msgs2"
+        }
+        if {$total != $total2} {
+            append result "Mismatch in total chars: $total != $total2"
+        }
+        if {$last != $last2} {
+            append result "Mismatch in total chars: $last != $last2"
+        }
+        set result
+    } -cleanup {
+        if {[info exists control_channel]} {
+            close $control_channel
+            unset control_channel
+        }
+    } -result ""
+
+
+    ###
+
+    test pipe-server-2.0 {
+        Test server using non-blocking I/O
+    } -setup {
+        set control_channel [start_npecho_server asyncserver]
+    } -constraints {
+        nt
+    } -body {
+        foreach {msgs total last} [np_echo_client -name {\\.\pipe\twapitestasyncserver}] break
+        foreach {msgs2 total2 last2} [gets_timeout $control_channel 5000] break
+        set result ""
+        if {$msgs != $msgs2} {
+            lappend result "Mismatch in number of messages: $msgs != $msgs2"
+        }
+        if {$total != $total2} {
+            lappend result "Mismatch in total chars: $total != $total2"
+        }
+        if {$last != $last2} {
+            lappend result "Mismatch in last message size: $last != $last2"
+        }
+        join $result \n
+    } -cleanup {
+        if {[info exists control_channel]} {
+            close $control_channel
+            unset control_channel
+        }
+    } -result ""
+    ################################################################
+
+
+    ::tcltest::cleanupTests
+}
+
+namespace delete ::twapi::pipe::test
