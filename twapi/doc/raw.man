@@ -1,0 +1,24 @@
+[comment {-*- tcl -*- doctools manpage}]
+[manpage_begin "Win32 raw API" n ""]
+[copyright "2003-2010 Ashok P. Nadkarni"]
+[moddesc "Windows API"]
+[titledesc "Direct access to the Win32 API"]
+[description]
+[para]
+
+The Windows API may be directly accessed by
+Tcl commands that map to Windows functions. This interface is not
+documented in the TWAPI documentation. Refer to the Microsoft Windows
+SDK for a description of the functions and parameters.
+[para]
+It is recommended that the higher level documented TWAPI Tcl functions be used
+instead. These provide an easier and more flexible interface in addition
+to hiding platform-specific differences.
+
+[section Commands]
+The list of supported Windows functions may be obtained by executing the
+command [cmd "twapi::list_raw_api"].
+
+
+[keywords "Win32 API" "Supported Win32 functions"]
+[manpage_end]
