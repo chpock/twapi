@@ -1,0 +1,819 @@
+#
+# Copyright (c) 2006-2010, Ashok P. Nadkarni
+# All rights reserved.
+#
+# See the file LICENSE for license
+
+# This file contains tests for commands from the com.tcl
+
+package require tcltest
+eval tcltest::configure $argv
+
+source [file join [file dirname [info script]] testutil.tcl]
+load_twapi_package
+
+namespace eval twapi::com::test {
+    namespace import ::tcltest::test
+    ::tcltest::testConstraint win2k [twapi::min_os_version 5]
+
+    variable shell_clsid {{13709620-C279-11CE-A49E-444553540000}}
+    variable shell_progid Shell.Application
+    variable ie_clsid {{0002DF01-0000-0000-C000-000000000046}}
+    variable ie_quit_delay 100;   # Ms Delay before calling IE Quit to avoid hang
+
+    ################################################################
+
+    test clsid_to_progid-1.0 {
+        Get the ProgId for a CLSID
+    } -body {
+        twapi::clsid_to_progid $shell_clsid
+    } -result {^Shell\.Application\.\d*$} -match regexp
+
+    ################################################################
+
+    test progid_to_clsid-1.0 {
+        Get the CLSID for a ProgId
+    } -body {
+        twapi::progid_to_clsid Shell.Application
+    } -result $shell_clsid
+
+    ################################################################
+
+    test name_to_iid-1.0 {
+        Get IID for a predefined interface
+    } -body {
+        twapi::name_to_iid IDispatch
+    } -result {{00020400-0000-0000-C000-000000000046}}
+
+    test name_to_iid-1.1 {
+        Get IID for a interface
+    } -body {
+        if {[info exists twapi::_name_to_iid_cache(ishelldispatch4)]} {
+            error "Badly defined test - ishelldispatch4 is a predefined interface"
+        }
+        twapi::name_to_iid IShellDispatch4
+    } -result {{EFD84B2D-4BCF-4298-BE25-EB542A59FBDA}}
+
+    ################################################################
+
+    test iid_to_name-1.0 {
+        Convert dispatch guid to name
+    } -body {
+        twapi::iid_to_name {{00020400-0000-0000-C000-000000000046}}
+    } -result IDispatch
+
+    test iid_to_name-1.1 {
+        Convert dispatch guid to name
+    } -body {
+        twapi::iid_to_name {{EFD84B2D-4BCF-4298-BE25-EB542A59FBDA}}
+    } -result IShellDispatch4
+
+
+    ################################################################
+
+    test comobj-1.0 {
+        Create COM object using progid
+    } -constraints {
+        nt
+    } -body {
+        [twapi::comobj $shell_progid] -destroy
+    } -result ""
+
+    ###
+
+    test comobj-1.1 {
+        Create COM object using clsid
+    } -constraints {
+        nt
+    } -body {
+        [twapi::comobj $shell_clsid] -destroy
+    } -result ""
+
+    ###
+
+    test comobj-2.0 {
+        Create COM object with -disablelog true
+    } -constraints {
+        nt
+    } -body {
+        [twapi::comobj $shell_clsid -disablelog true] -destroy
+    } -result ""
+
+    ###
+
+    test comobj-2.1 {
+        Create COM object with -disablelog false
+    } -constraints {
+        nt
+    } -body {
+        [twapi::comobj $shell_clsid -disablelog false] -destroy
+    } -result ""
+
+    ###
+
+    test comobj-3.0 {
+        Create COM object with -download true
+    } -constraints {
+        nt
+    } -body {
+        [twapi::comobj $shell_clsid -download true] -destroy
+    } -result ""
+
+    ###
+
+    test comobj-3.1 {
+        Create COM object with -download false
+    } -constraints {
+        nt
+    } -body {
+        [twapi::comobj $shell_clsid -download false] -destroy
+    } -result ""
+
+    ###
+
+    test comobj-4.0 {
+        Create COM object with -enableaaa true
+    } -constraints {
+        nt
+    } -body {
+        [twapi::comobj $shell_clsid -enableaaa true] -destroy
+    } -result ""
+
+    ###
+
+    test comobj-4.1 {
+        Create COM object with -enableaaa false
+    } -constraints {
+        nt
+    } -body {
+        [twapi::comobj $shell_clsid -enableaaa false] -destroy
+    } -result ""
+
+    ###
+
+    test comobj-5.0 {
+        Create COM object with -model any
+    } -constraints {
+        nt
+    } -body {
+        [twapi::comobj $shell_clsid -model any] -destroy
+    } -result ""
+
+    ###
+
+    test comobj-5.1 {
+        Create COM object with -model inprocserver
+    } -constraints {
+        nt
+    } -body {
+        [twapi::comobj $shell_clsid -model inprocserver] -destroy
+    } -result ""
+
+    ###
+
+    test comobj-5.2 {
+        Create COM object with -model localserver
+    } -constraints {
+        nt
+    } -body {
+        set ie [twapi::comobj $ie_clsid -model localserver]
+        after $ie_quit_delay;        # Delay before quitting else IE 8 hangs
+        $ie Quit
+        $ie -destroy
+    } -result ""
+
+    ###
+
+    test comobj-5.3 {
+        Create COM object with -model remoteserver
+    } -constraints {
+        nt TBD
+    } -body {
+    } -result ""
+
+    ###
+
+    test comobj-5.4 {
+        Create COM object with -model inprochandler
+    } -constraints {
+        nt TBD
+    } -body {
+    } -result ""
+
+    ###
+
+    test comobj-6.0 {
+        Create COM object with -nocustommarshal true
+    } -constraints {
+        TBD nt
+    } -body {
+        need to find a COM object that supports this
+        [twapi::comobj PROGID -nocustommarshal true] -destroy
+    } -result ""
+
+    ###
+
+    test comobj-6.1 {
+        Create COM object with -nocustommarshal false
+    } -constraints {
+        nt
+    } -body {
+        [twapi::comobj $shell_clsid -nocustommarshal false] -destroy
+    } -result ""
+
+
+    test comobj-7.0 {
+        Get default property value of a COM object
+    } -constraints {
+        nt
+    } -setup {
+        set ie [twapi::comobj InternetExplorer.Application]
+    } -cleanup {
+        after $ie_quit_delay;        # Delay before quitting else IE 8 hangs
+        $ie Quit
+        $ie -destroy
+    } -body {
+        $ie -default
+    } -result "* Internet Explorer" -match glob 
+
+    ###
+
+    test comobj-8.0 {
+        Get comobj implicit property
+    } -constraints {
+        nt
+    } -setup {
+        set wscript [twapi::comobj wscript.shell]
+    } -cleanup {
+        $wscript -destroy
+    } -body {
+        file normalize [$wscript CurrentDirectory]
+    } -result [pwd]
+
+    ###
+
+    test comobj-8.1 {
+        Put comobj implicit property
+    } -constraints {
+        nt
+    } -setup {
+        set prevdir [pwd]
+        set wscript [twapi::comobj wscript.shell]
+    } -cleanup {
+        $wscript -destroy
+        cd $prevdir
+    } -body {
+        $wscript CurrentDirectory c:/
+        string tolower [pwd]
+    } -result c:/
+
+    ###
+
+    test comobj-8.2 {
+        Invoke comobj implicit method
+    } -constraints {
+        nt
+    } -setup {
+        set wscript [twapi::comobj wscript.shell]
+    } -cleanup {
+        $wscript -destroy
+    } -body {
+        $wscript ExpandEnvironmentStrings %username%
+    } -result $::env(username)
+
+    ###
+
+    # Handler invoked when a process is started.
+    proc process_start_handler {wmi_event args} {
+        if {$wmi_event eq "OnObjectReady"} {
+            # First arg is a IDispatch interface of the event object
+            # Create a TWAPI COM object out of it
+            set ifc [lindex $args 0]
+            ::twapi::IUnknown_AddRef $ifc;   # Must hold ref before creating comobj
+            set event_obj [::twapi::comobj_idispatch $ifc]
+
+            set name [$event_obj ProcessName]
+            if {[string equal -nocase $name notepad.exe]} {
+                set ::comobj_process_starts_test \
+                    [list [$event_obj ProcessID] $name]
+            }
+
+            # Get rid of the event object
+            $event_obj -destroy
+
+        }
+    }
+
+    test comobj-9.0 {
+        Bind scripts to comobj events using -bind
+    } -setup {
+        set wmi [twapi::_wmi]
+    } -cleanup {
+        $wmi -destroy
+    } -body {
+        # Create an WMI event sink
+        set process_event_sink [twapi::comobj wbemscripting.swbemsink]
+
+        # Attach our handler to it
+        set process_event_sink_id [$process_event_sink -bind [namespace current]::process_start_handler]
+
+        # Associate the sink with a query that polls every 1 sec for process
+        # starts.
+        set sink_ifc [$process_event_sink -interface]; # Does AddRef
+        twapi::trap {
+            $wmi ExecNotificationQueryAsync $sink_ifc "select * from Win32_ProcessStartTrace"
+        } finally {
+            # WMI will internally do a AddRef, so we can release our AddRef on sink_ifc
+            twapi::IUnknown_Release $sink_ifc
+        }
+
+        # Wait for wmi
+        after 1000
+        set np_pid [notepad_exec]
+        set after_id [after 5000 {set ::comobj_process_starts_test {}}]
+        vwait ::comobj_process_starts_test
+        after cancel $after_id
+        
+        # Cancel event notifications
+        $process_event_sink Cancel
+
+        # Unbind our callback
+        $process_event_sink -unbind $process_event_sink_id
+
+        # Get rid of all objects
+        $process_event_sink -destroy
+
+        twapi::end_process $np_pid -force true
+        expr {
+              [lindex $::comobj_process_starts_test 0] == $np_pid &&
+              [string equal -nocase [lindex $::comobj_process_starts_test 1] notepad.exe]
+          }
+    } -result 1
+
+
+    ###
+
+    test comobj-10.0 {
+        Invoke comobj method using -call
+    } -constraints {
+        nt
+    } -setup {
+        set wscript [twapi::comobj wscript.shell]
+    } -cleanup {
+        $wscript -destroy
+    } -body {
+        $wscript -call ExpandEnvironmentStrings %username%
+    } -result $::env(username)
+
+    
+    test comobj-10.1 {
+        Invoke comobj method using -call when no type information is available
+    } -constraints {
+        nt systemmodificationok TBD
+    } -setup {
+        # ADSI does not support ITypeInfo so use it for the test
+        set adsi_user [twapi::comobj_object "WinNT://./$::env(USERNAME),user"]
+        What method can we call?
+    } -cleanup {
+        $adsi_user -destroy
+    } -body {
+        $wscript -call ExpandEnvironmentStrings %username%
+    } -result $::env(username)
+
+
+    ###
+
+    test comobj-11.0 {
+        Destroy comobj
+    } -constraints {
+        nt
+    } -body {
+        set wscript [twapi::comobj wscript.shell]
+        $wscript -destroy
+        llength [info commands $wscript]
+    } -result 0
+
+    ###
+
+    test comobj-12.0 {
+        Get comobj property using -get
+    } -constraints {
+        nt
+    } -setup {
+        set wscript [twapi::comobj wscript.shell]
+    } -cleanup {
+        $wscript -destroy
+    } -body {
+        file normalize [$wscript -get CurrentDirectory]
+    } -result [pwd]
+
+
+    test comobj-12.1 {
+        Get comobj property using explicit -get when no TypeInfo is available
+    } -constraints {
+        nt
+    } -setup {
+        # ADSI does not support ITypeInfo so use it for the test
+        set adsi_user [twapi::comobj_object "WinNT://./Administrator,user"]
+    } -cleanup {
+        $adsi_user -destroy
+    } -body {
+        $adsi_user -get name
+    } -result Administrator
+
+    ###
+
+    test comobj-13.0 {
+        Get comobj interface using -proxy
+    } -constraints {
+        nt
+    } -setup {
+        set wscript [twapi::comobj wscript.shell]
+    } -cleanup {
+        $wscript -destroy
+    } -body {
+        # Interface should be an IDispatch so try calling one of its methods
+        [$wscript -proxy] GetTypeInfoCount
+    } -result 1
+
+    ###
+
+    test comobj-14.0 {
+        Iterate over a comobj collection using -iterate
+    } -constraints {
+        nt
+    } -setup {
+        set fso [twapi::comobj Scripting.FileSystemObject]
+        set drive_coll [$fso Drives]
+    } -cleanup {
+        $drive_coll -destroy
+        $fso -destroy
+    } -body {
+        set drives [list ]
+        $drive_coll -iterate drive_obj {
+            lappend drives [$drive_obj DriveLetter]
+        }
+        llength $drives
+    } -result [llength [twapi::get_logical_drives]]
+
+    test comobj-14.1 {
+        Iterate over a comobj collection using -iterate - Bug 3185933
+    } -constraints {
+        nt
+    } -setup {
+        set oCat  [::twapi::comobj ComAdmin.COMAdminCatalog]
+        set oApps [$oCat GetCollection Applications]
+        $oApps Populate
+    } -cleanup {
+        $oCat -destroy
+        $oApps -destroy
+    } -body {
+        set names {}
+        $oApps -iterate oApp {
+            lappend names [$oApp Name]
+            $oApp -destroy
+        }
+        expr {[lsearch -exact $names "COM+ Utilities"] >= 0}
+    } -result 1
+
+    ###
+
+    test comobj-15.0 {
+        Get a interface from a comobj using -interface
+    } -constraints {
+        nt
+    } -setup {
+        set wscript [twapi::comobj wscript.shell]
+    } -cleanup {
+        $wscript -destroy
+    } -body {
+        twapi::IUnknown_Release [$wscript -interface]
+        # There is one ref left from the wscript.shell object itself
+    } -result 1
+
+    ###
+
+    test comobj-16.0 {
+        Put comobj property using -put
+    } -constraints {
+        nt
+    } -setup {
+        set prevdir [pwd]
+        set wscript [twapi::comobj wscript.shell]
+    } -cleanup {
+        $wscript -destroy
+        cd $prevdir
+    } -body {
+        $wscript -set CurrentDirectory c:/
+        string tolower [pwd]
+    } -result c:/
+
+    test comobj-16.1 {
+        Put comobj property using -put when no type information is available
+    } -constraints {
+        nt systemmodificationok TBD
+    } -setup {
+        # ADSI does not support ITypeInfo so use it for the test
+        set adsi_user [twapi::comobj_object "WinNT://./$::env(USERNAME),user"]
+    } -cleanup {
+        $adsi_user -destroy
+    } -body {
+        What property can we set ?
+    } -result $::env(username)
+
+
+    ###
+
+    test comobj-17.0 {
+        Unbind from comobj events using -unbind
+    } -setup {
+        set wmi [twapi::_wmi]
+        # Create an WMI event sink
+        set process_event_sink [twapi::comobj wbemscripting.swbemsink]
+
+        # Attach our handler to it
+        set process_event_sink_id [$process_event_sink -bind [namespace current]::process_start_handler]
+
+        # Associate the sink with a query that polls every 1 sec for process
+        # starts.
+        set sink_ifc [$process_event_sink -interface]; # Does AddRef
+        twapi::trap {
+            $wmi -call ExecNotificationQueryAsync $sink_ifc "select * from Win32_ProcessStartTrace"
+        } finally {
+            # WMI will internally do a AddRef, so we can release our AddRef on sink_ifc
+            twapi::IUnknown_Release $sink_ifc
+        }
+
+        # Wait for wmi
+        after 1000
+        set np_pid [notepad_exec]
+        set after_id [after 5000 {set ::comobj_process_starts_test {}}]
+        vwait ::comobj_process_starts_test
+        after cancel $after_id
+        
+        twapi::end_process $np_pid -force true
+
+        if { [lindex $::comobj_process_starts_test 0] != $np_pid ||
+             [string compare -nocase [lindex $::comobj_process_starts_test 1] notepad.exe] } {
+            error "Could not set up bind for testing -unbind."
+        }
+    } -body {
+        
+        # Cancel event notifications
+        $process_event_sink Cancel
+
+        # Unbind our callback
+        $process_event_sink -unbind $process_event_sink_id
+
+        # Should no longer receive events
+        set np_pid [notepad_exec]
+        set after_id [after 5000 {set ::comobj_process_starts_test timeout}]
+        vwait ::comobj_process_starts_test
+        after cancel $after_id
+        
+        twapi::end_process $np_pid -force true
+
+        set ::comobj_process_starts_test
+    } -cleanup {
+
+        # Get rid of all objects
+        $process_event_sink -destroy
+
+        $wmi -destroy
+    } -result timeout
+
+    ###
+
+    test comobj-18.0 {
+        Navigate comobj hierarchy using -with
+    } -setup {
+        set sh [twapi::comobj Shell.Application]
+    } -cleanup {
+        $sh -destroy
+    } -body {
+        $sh -with {
+            {NameSpace 36}
+            {ParseName system32}
+        } Path
+    } -result [file join $::env(WINDIR) system32] -match path
+
+    ###
+
+    test comobj-19.0 {
+        Check is comobj is null
+    } -body {
+        set sh [twapi::comobj $shell_clsid]
+        $sh -isnull
+    } -cleanup {
+        $sh -destroy
+    } -result 0 -match boolean
+
+
+    ################################################################
+
+    test comobj_object-1.0 {
+        Create a COM object based on a moniker display name
+    } -body {
+        set wmi [twapi::comobj_object "winmgmts:{impersonationLevel=impersonate}!//./root/cimv2"]
+        set records [list ]
+        $wmi -with {{ExecQuery "select * from Win32_ComputerSystem"}} -iterate elem {
+            set record {}
+            set propset [$elem Properties_]
+            $propset -iterate itemobj {
+                # Note how we get the default property
+                lappend record [string tolower [$itemobj Name]] [$itemobj -default]
+                $itemobj -destroy
+            }
+            $elem -destroy
+            $propset -destroy
+            lappend records $record
+        }
+        $wmi -destroy
+        verify_kl_fields [lindex $records 0] {
+            systemtype username status
+        } 1
+    } -result ""
+
+    test comobj_object-1.1 {
+        Create a COM object based on a moniker display name (IDispatch)
+    } -body {
+        set adsi_user [twapi::comobj_object "WinNT://./Administrator,user"]
+        $adsi_user Name
+    } -cleanup {
+        $adsi_user -destroy
+    } -result Administrator
+
+    test comobj_object-1.2 {
+        Create a COM object based on a moniker display name (IDispatchEx)
+    } -body {
+        set wmi [twapi::comobj_object "winmgmts:{impersonationLevel=impersonate}!//./root/cimv2" -interface IDispatchEx]
+        set records [list ]
+        $wmi -with {{ExecQuery "select * from Win32_ComputerSystem"}} -iterate elem {
+            set record {}
+            set propset [$elem Properties_]
+            $propset -iterate itemobj {
+                # Note how we get the default property
+                lappend record [string tolower [$itemobj Name]] [$itemobj -default]
+                $itemobj -destroy
+            }
+            $elem -destroy
+            $propset -destroy
+            lappend records $record
+        }
+        $wmi -destroy
+        verify_kl_fields [lindex $records 0] {
+            systemtype username status
+        } 1
+    } -result ""
+
+    ################################################################
+
+    test comobj_null-1.0 {
+        NULL comobj -isnull
+    } -body {
+        twapi::comobj_null -isnull
+    } -result 1 -match boolean
+
+    test comobj_null-1.1 {
+        NULL comobj -interface
+    } -body {
+        twapi::comobj_null -interface
+    } -result NULL
+
+    test comobj_null-1.2 {
+        NULL comobj -destroy
+    } -body {
+        twapi::comobj_null -destroy
+    } -result ""
+
+    ################################################################
+
+    test variant_time_to_timelist-1.0 {
+        Convert variant time to a time list
+    } -constraints {
+        nt
+    } -body {
+        twapi::variant_time_to_timelist 2.0
+    } -result "1900 1 1 0 0 0 0"
+
+    ################################################################
+
+    test timelist_to_variant_time-1.0 {
+        Convert time list to a variant time
+    } -constraints {
+        nt
+    } -body {
+        twapi::timelist_to_variant_time  "1900 1 1 0 0 0 0"
+    } -result 2.0
+
+
+
+    ################################################################
+
+    test variant_param_passing-1.0 {
+        Test variant parameter of type int are passed correctly
+    } -setup {
+        set sh [twapi::comobj Shell.Application]
+    } -body {
+        # The param is a variant that may be a integer
+        # corresponding to a special folder or a string path
+        set fo [$sh NameSpace 36]
+        string toupper [$fo Title]
+    } -cleanup {
+        $fo -destroy
+        $sh -destroy
+    } -result WINDOWS
+
+    test variant_param_passing-1.1 {
+        Test variant parameter of type string are passed correctly
+    } -setup {
+        set sh [twapi::comobj Shell.Application]
+    } -body {
+        # The param is a variant that may be a integer
+        # corresponding to a special folder or a string path
+        set fo [$sh NameSpace [file nativename [pwd]]]
+        $fo Title
+    } -cleanup {
+        $fo -destroy
+        $sh -destroy
+    } -result [file tail [pwd]]
+
+    test variant_param_passing-1.2 {
+        Test variant parameter of type dispatch are passed correctly
+    } -setup {
+        set sh [twapi::comobj Shell.Application]
+        set dir [tcltest::makeDirectory [clock clicks]]
+        set path [tcltest::makeFile "" [clock clicks]]; # Makes file in temp dir
+        set source_folder_obj [$sh NameSpace [file nativename [tcltest::temporaryDirectory]]]
+        set source_file_obj [$source_folder_obj ParseName [file tail $path]]
+        set ifc [$source_file_obj -interface]
+        set target_folder_obj [$sh NameSpace [file nativename $dir]]
+    } -body {
+        # The param is a variant that may be a integer
+        # corresponding to a special folder or a string path
+        # or (in this case) a folder object
+        $target_folder_obj CopyHere $ifc
+        file exists [file join $dir [file tail $path]]
+    } -cleanup {
+        twapi::IUnknown_Release $ifc
+        $source_file_obj -destroy
+        $source_folder_obj -destroy
+        $target_folder_obj -destroy
+        $sh -destroy
+    } -result 1
+
+    test variant_param_passing-2.0 {
+        Test variant parameter of type variant*
+    } -constraints {
+        userInteraction
+    } -setup {
+        set ie [twapi::comobj InternetExplorer.Application]
+    } -body {
+        # The first parameter is passed as bstr variant*
+        # The second parameter "1" is passed as int variant*
+        $ie Visible 1
+        $ie Navigate http://www.google.com 1
+        after 100;              # Give it a chance
+        yesno "Did you see two Internet Explorer windows, at least one to google (The google window *may* have to be closed manually) ?"
+    } -cleanup {
+        $ie Quit
+        $ie -destroy
+        # The second window remains so close it
+        set iewin [lindex [twapi::find_windows -text "Google*" -match glob -toplevel 1] 0]
+        if {$iewin ne ""} {
+            twapi::close_window $iewin
+        }
+    } -result 1
+
+    ################################################################
+    
+    test idispatchex-1.0 {
+        Test expando members for IDispatchEx interfaces
+    } -setup {
+        set wmi [twapi::_wmi]
+    } -body {
+        set res [list ]
+        $wmi -with {
+        {ExecQuery "select * from Win32_NTLogEvent where LogFile='System' and SourceName='eventlog'"}
+        } -iterate event {
+            lappend res [$event SourceName]
+        }
+        # It is hoped there is more than one event since this test is also
+        # supposed to verify a previous bug is fixed where the prototype
+        # was cached (it should not be) resulting in failure when
+        # retrieving the second event.
+        expr {
+              [llength $res] > 1 &&
+              [string tolower [lindex $res 0]] eq "eventlog"
+          }
+    } -cleanup {
+        $wmi -destroy
+    } -result 1
+
+
+    ################################################################
+
+    ::tcltest::cleanupTests
+}
+
+namespace delete ::twapi::com::test
