@@ -1,0 +1,59 @@
+[comment {-*- tcl -*- doctools manpage}]
+[manpage_begin "Microsoft Windows Installer" n ""]
+[copyright "2007-2009 Ashok P. Nadkarni"]
+[moddesc "Microsoft Windows Installer support"]
+[titledesc "Commands for accessing Microsoft Windows Installer"]
+[require twapi]
+[description]
+
+[emph "This module is experimental."]
+
+[para]
+This module provides commands for accessing the Microsoft Windows Installer
+(MSI) component through its COM interfaces. The primary motivation for
+this module is that although the Installer provides a COM interface,
+it cannot be bound and types discovered at run time. This module
+provides the required type definitions for the various interfaces.
+These type definitions must be programmatically loaded into a
+MSI object instance by the application.
+
+[section "Creation and Destruction of MSI objects"]
+
+MSI objects are created through TWAPI's COM interface commands. The Installer
+object is created through the command
+[example "set msiobj \[comobj WindowsInstaller.Installer\]"]
+
+Once an MSI object is no longer needed, it must be deleted like any other
+COM object.
+[example "\$msiobj -destroy"]
+
+[para]
+[emph "Note a final call to [cmd \$MSIOBJ\ -destroy] is required for all MSI objects, not just the top-level Installer object"].
+
+[para]
+Once an MSI object is created, it must be cast to the appropriate type
+with the command [uri #cast_msi_object [cmd cast_msi_object]] before calling
+any methods on the object.
+
+[example "twapi::load_msi_prototypes \$msiobj Installer"]
+
+[list_begin definitions]
+[call [cmd cast_msi_object] [arg MSICOMOBJ] [arg MSITYPE]]
+Loads the type information corresponding to the MSI type [arg MSITYPE] into
+the COM object command [arg MSICOMOBJ]. [arg MSITYPE] corresponds to
+one of the object types defined in the 
+[uri http://msdn2.microsoft.com/en-us/library/aa372860.aspx "Windows Installer Reference"]:
+[const Database], [const FeatureInfo], [const Installer], [const Patch],
+[const Product], [const Record], [const RecordList], [const Session],
+[const StringList], [const SummaryInfo], [const UiPreview] and
+[const View].
+
+[nl]
+When an object of a MSI type is created, it should be passed
+to [cmd cast_msi_object] along with the type before making any method
+calls on the objects.
+[list_end]
+
+[keywords "Windows Installer" MSI installer]
+
+[manpage_end]

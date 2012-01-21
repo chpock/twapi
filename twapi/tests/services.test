@@ -1,0 +1,1328 @@
+#
+# Copyright (c) 2003, Ashok P. Nadkarni
+# All rights reserved.
+#
+# See the file LICENSE for license
+
+# This file contains tests for commands from the services.tcl
+
+package require tcltest
+
+eval tcltest::configure $argv
+
+source [file join [file dirname [info script]] testutil.tcl]
+load_twapi_package
+
+
+namespace eval twapi::services::test {
+    namespace import ::tcltest::test
+    ::tcltest::testConstraint win2k [twapi::min_os_version 5]
+
+    # Name to use for test service
+    variable service_internal_name "aaatwapitestservice"
+    variable service_display_name  "AAA Twapi Test Service"
+
+    # Name for echo service
+    variable echo_service_name "aaatwapiechoresponder"
+
+    # List of services on the system
+    variable servicescheck
+
+    # An interactive/noninteractive service
+    variable interactive_service
+    variable noninteractive_service
+
+
+    proc fill_services {{refresh 0}} {
+        variable servicescheck
+        if {$refresh || ![info exists servicescheck]} {
+            variable interactive_service
+            variable noninteractive_service
+
+            set fd [open "| cscript.exe /nologo services.vbs"]
+            set data [read $fd]
+            foreach line [xsplit $data "<@>"] {
+                if {[string length $line] == 0} continue
+                array set service [xsplit $line "<\\*>"]
+
+                # TBD - need to get load order group, dependencies,
+                # account
+
+                # Convert values to our symbols
+                set service(DesktopInteract) [expr {$service(DesktopInteract) != "False"}]
+                if {$service(DesktopInteract)} {
+                    set interactive_service $service(Name)
+                } else {
+                    set noninteractive_service $service(Name)
+                }
+                set service(ErrorControl) [string tolower $service(ErrorControl)]
+                switch -exact -- $service(StartMode) {
+                    Auto   { set service(StartMode) auto_start }
+                    Manual { set service(StartMode) demand_start }
+                    Disabled { set service(StartMode) disabled }
+                }
+                switch -exact -- $service(ServiceType) {
+                    "Share Process" { set service(ServiceType) win32_share_process }
+                    "Own Process" { set service(ServiceType) win32_own_process }
+                }
+                # Set the fields. Note that for some fields we set
+                # with and without the preceding "-" as some commands
+                # return values with a "-" and others do not
+                set servicescheck([string tolower $service(Name)]) \
+                    [list \
+                         -name         $service(Name) \
+                         -displayname  $service(DisplayName) \
+                         -errorcontrol $service(ErrorControl) \
+                         -servicetype  $service(ServiceType) \
+                         servicetype   $service(ServiceType) \
+                         -interactive  $service(DesktopInteract) \
+                         interactive   $service(DesktopInteract) \
+                         -starttype    $service(StartMode) \
+                         -command      $service(PathName) \
+                         -account      $service(StartName) \
+                         state         [string tolower $service(State)]
+                         ]
+            }
+            close $fd
+        }
+    }
+
+    ################################################################
+    # Get given field for the given service. Error if service does not exist
+    proc get_service_field {svcname field {refresh 0}} {
+        variable servicescheck
+        fill_services $refresh
+        set svcname [string tolower $svcname]
+        if {![info exists servicescheck($svcname)]} {
+            error "Service $svcname does not exist"
+        }
+        return [get_kl_field $servicescheck($svcname) $field]
+    }
+
+    # Get list of service names
+    proc get_service_names {{refresh 0}} {
+        variable servicescheck
+        fill_services $refresh
+        return [array names servicescheck]
+    }
+    
+    # Verify as many service fields as possible. Only the fields present in
+    # $v_svcinfo are checked
+    proc verify_service {svcname v_svcinfo {refresh 0}} {
+        upvar $v_svcinfo svcinfo
+
+        fill_services $refresh
+
+        set mismatches [list ]
+        foreach field {-errorcontrol -servicetype -interactive -starttype -account state} {
+            if {[info exists svcinfo($field)]} {
+                if {[string compare -nocase [get_service_field $svcname $field] $svcinfo($field)]} {
+                    lappend mismatches "Mismatch in field $field (was '[get_service_field $svcname $field]', expected '$svcinfo($field)')"
+                }
+            }
+        }
+        foreach field {-svcname -displayname -command} {
+            if {[info exists svcinfo($field)]} {
+                if {[string compare -nocase [get_service_field $svcname $field] $svcinfo($field)]} {
+                    lappend mismatches "Mismatch in field $field (was '[get_service_field $svcname $field]', expected '$svcinfo($field)')"
+                }
+            }
+        }
+        return [concat [join $mismatches "\n"]]
+    }
+
+    proc ensure_service_running {svcname} {
+        # Check if service is already running, 
+        switch -exact -- [set state [twapi::get_service_state $svcname]] {
+            running {
+                # Nothing to do
+                return
+            }
+            stopped {
+                exec net start $svcname
+            }
+            paused {
+                exec net continue $svcname
+            }
+            default {
+                error "Don't know how to change state from $state to running"
+            }
+        }
+
+        # Verify service is actually running
+        twapi::interrogate_service $svcname
+        if {[string compare [twapi::get_service_state $svcname] running]} {
+            error "Could not change state of service $svcname to running."
+        }
+    }
+
+    proc ensure_service_stopped {svcname} {
+        # Check if service is already stopped
+        switch -exact -- [set state [twapi::get_service_state $svcname]] {
+            start_pending -
+            running {
+                exec net stop $svcname
+            }
+            stopped {
+                # Nothing to do
+                return
+            }
+            paused {
+                catch {
+                    exec net continue $svcname
+                }
+                exec net stop $svcname
+            }
+            default {
+                error "Don't know how to change state from $state to stopped"
+            }
+        }
+
+        if {[string compare [twapi::get_service_state $svcname] stopped]} {
+            after 200;          # Give it a bit of time
+            if {[string compare [twapi::get_service_state $svcname] stopped]} {
+                error "Could not change state of service $svcname to stopped."
+            }
+        }
+    }
+
+    proc ensure_service_paused {svcname} {
+        switch -exact -- [set state [twapi::get_service_state $svcname]] {
+            running {
+                exec net pause $svcname
+            }
+            paused {
+                # Nothing to do
+            }
+            stopped {
+                ensure_service_running $svcname
+                exec net pause $svcname
+            }
+            default {
+                error "Don't know how to change state from $state to stopped"
+            }
+        }
+
+        twapi::interrogate_service $svcname
+        if {[string compare [twapi::get_service_state $svcname] paused]} {
+            after 200;          # Give it a bit of time
+            if {[string compare [twapi::get_service_state $svcname] paused]} {
+                error "Could not change state of service $svcname to stopped."
+            }
+        }
+    }
+
+    # Delete a service and wait until it is deleted
+    proc ensure_service_deleted {svcname} {
+        if {[twapi::service_exists $svcname]} {
+            ensure_service_stopped $svcname
+            twapi::delete_service $svcname
+        }
+        after 10
+        if {[twapi::service_exists $svcname]} {
+            error "Could not delete service $svcname"
+        }
+    }
+
+    # Make sure the test service exists, and optionally that it is 
+    # in a specified state
+    proc ensure_test_service {{state ""}} {
+        variable service_internal_name
+
+        if {![twapi::service_exists $service_internal_name]} {
+            # We specify port at 0 as we are not actually going to connect
+            # to it.
+            exec [info nameofexecutable] [file join [tcltest::testsDirectory] echoservice.tcl] install $service_internal_name 0
+        }
+
+        if {$state ne ""} {
+            ensure_service_$state $service_internal_name
+        }
+
+    }
+    
+
+    # Compare two service values and return 1 if same
+    proc service_configuration_value_same {field valA valB} {
+        switch -exact -- $field {
+            -dependencies {
+                return [string equal -nocase [lsort $valA] [lsort $valB]]
+            }
+            default {
+                return [string equal -nocase $valA $valB]
+            }
+        }
+    }
+
+    # Common procedure for set_service_configuration tests
+    proc check_set_service_configuration {args} {
+        variable service_internal_name
+        array set newopts $args
+        ensure_test_service
+        array set orig [twapi::get_service_configuration $service_internal_name -all]
+        eval [list twapi::set_service_configuration $service_internal_name] [array get newopts]
+        # To verify that no fields other than that specified is changed,
+        # we retrieve all values
+        array set new [twapi::get_service_configuration $service_internal_name -all]
+        foreach {index newval} [array get new] {
+            if {[info exists newopts($index)]} {
+                if {![service_configuration_value_same $index $newval $newopts($index)]} {
+                    return "Value of requested option $index is '$newval' instead of the specified '$newopts($index)'."
+                }
+            } else {
+                if {![service_configuration_value_same $index $orig($index) $newval]} {
+                    return "Value of option $index changed unexpectedly from '$orig($index)' to $newval."
+                }
+            }
+        }
+        return ""
+    }
+    
+    ################################################################
+
+    test service_exists-1.0 {
+        Verify that a given service exists (internal name)
+    } -constraints {
+        nt
+    } -body {
+        twapi::service_exists rpcss
+    } -result 1
+    
+    ###
+
+    test service_exists-1.1 {
+        Verify that a given service exists (display name)
+    } -constraints {
+        nt
+    } -body {
+        twapi::service_exists "Remote Procedure Call (RPC)"
+    } -result 1
+    
+    ###
+
+    test service_exists-1.2 {
+        Verify that a given service does not exist
+    } -constraints {
+        nt
+    } -body {
+        twapi::service_exists "nosuchservice"
+    } -result 0
+
+    ################################################################
+
+    test get_service_internal_name-1.0 {
+        Get the internal name of a service when given display name
+    } -constraints {
+        nt
+    } -body {
+        string tolower [twapi::get_service_internal_name "Remote Procedure Call (RPC)"]
+    } -result rpcss
+    
+    ###
+    
+    test get_service_internal_name-1.1 {
+        Verify the internal name of a service maps back to internal name
+    } -constraints {
+        nt
+    } -body {
+        string tolower [twapi::get_service_internal_name rpcss]
+    } -result rpcss
+    
+    ################################################################
+
+    test get_service_display_name-1.0 {
+        Get the display name of a service when given internal name
+    } -constraints {
+        nt
+    } -body {
+        twapi::get_service_display_name rpcss
+    } -result "Remote Procedure Call (RPC)"
+    
+    ###
+    
+    test get_service_display_name-1.1 {
+        Verify the display name of a service maps back to itself
+    } -constraints {
+        nt
+    } -body {
+        twapi::get_service_display_name "Remote Procedure Call (RPC)"
+    } -result "Remote Procedure Call (RPC)"
+    
+    ################################################################
+
+    test get_service_configuration-1.0 {
+        Verify that empty list returned when no options specified for get_service_configuration
+    } -constraints {
+        nt
+    } -body {
+        twapi::get_service_configuration rpcss
+    } -result ""
+    
+    ###
+    
+    test get_service_configuration-2.0 {
+        Verify all options are returned when -all specified
+    } -constraints {
+        nt
+    } -body {
+        array unset svcinfo
+        array set svcinfo [twapi::get_service_configuration rpcss -all]
+        ::setops::symdiff [array names svcinfo] {
+            -displayname -errorcontrol -servicetype -interactive 
+            -loadordergroup -dependencies -account -starttype -command
+            -description
+        }
+    } -result ""
+
+    ###
+
+    test get_service_configuration-2.1 {
+        Verify correct values for all options -all specified
+    } -constraints {
+        nt
+    } -body {
+        catch {unset svcinfo}
+        set result [list ]
+        foreach svcname [get_service_names] {
+            array set svcinfo [twapi::get_service_configuration $svcname -all]
+            set errors [verify_service $svcname svcinfo]
+            if {[string length $errors]} {
+                lappend result $errors
+            }
+        }
+        join $result \n
+    } -result ""
+
+    ###
+
+    test get_service_configuration-3.0 {
+        Verify -displayname option
+    } -constraints {
+        nt
+    } -body {
+        catch {unset svcinfo}
+        array set svcinfo [twapi::get_service_configuration rpcss -displayname]
+        list -displayname $svcinfo(-displayname)
+    } -result {-displayname {Remote Procedure Call (RPC)}}
+
+    ###
+
+    test get_service_configuration-4.0 {
+        Verify -errorcontrol option for normal error control
+    } -constraints {
+        nt
+    } -body {
+        catch {unset svcinfo}
+        array set svcinfo [twapi::get_service_configuration rpcss -errorcontrol]
+        list -errorcontrol $svcinfo(-errorcontrol)
+    } -result {-errorcontrol normal}
+
+    ###
+
+    test get_service_configuration-4.1 {
+        Verify -errorcontrol option for ignore error control
+    } -constraints {
+        nt
+    } -body {
+        catch {unset svcinfo}
+        array set svcinfo [twapi::get_service_configuration winmgmt -errorcontrol]
+        list -errorcontrol $svcinfo(-errorcontrol)
+    } -result {-errorcontrol ignore}
+
+    ###
+
+    test get_service_configuration-5.0 {
+        Verify -servicetype option for win32 share process
+    } -constraints {
+        nt
+    } -body {
+        catch {unset svcinfo}
+        array set svcinfo [twapi::get_service_configuration eventlog -servicetype]
+        list -servicetype $svcinfo(-servicetype)
+    } -result {-servicetype win32_share_process}
+
+    ###
+
+    test get_service_configuration-5.1 {
+        Verify -servicetype option for win32 own process
+    } -constraints {
+        nt
+    } -body {
+        catch {unset svcinfo}
+        array set svcinfo [twapi::get_service_configuration rpclocator -servicetype]
+        list -servicetype $svcinfo(-servicetype)
+    } -result {-servicetype win32_own_process}
+
+    ###
+
+    test get_service_configuration-6.0 {
+        Verify -interactive option for non-interactive services
+    } -constraints {
+        nt
+    } -setup {
+        fill_services
+    } -body {
+        catch {unset svcinfo}
+        array set svcinfo [twapi::get_service_configuration $::twapi::services::test::noninteractive_service -interactive]
+        list -interactive $svcinfo(-interactive)
+    } -result {-interactive 0}
+
+    ###
+
+    test get_service_configuration-6.1 {
+        Verify -interactive option for interactive services
+    } -constraints {
+        nt
+    } -setup {
+        fill_services
+    } -body {
+        catch {unset svcinfo}
+        array set svcinfo [twapi::get_service_configuration $::twapi::services::test::interactive_service -interactive]
+        list -interactive $svcinfo(-interactive)
+    } -result {-interactive 1}
+
+    ###
+
+    test get_service_configuration-7.0 {
+        Verify -loadordergroup option for service not in a load order group
+    } -constraints {
+        nt
+    } -body {
+        catch {unset svcinfo}
+        array set svcinfo [twapi::get_service_configuration winmgmt -loadordergroup]
+        list -loadordergroup $svcinfo(-loadordergroup)
+    } -result {-loadordergroup {}}
+
+    
+    ###
+
+    test get_service_configuration-7.1 {
+        Verify -loadordergroup option for service in a load order group
+    } -constraints {
+        nt
+    } -body {
+        catch {unset svcinfo}
+        array set svcinfo [twapi::get_service_configuration LmHosts -loadordergroup]
+        list -loadordergroup $svcinfo(-loadordergroup)
+    } -result {-loadordergroup TDI}
+
+    ###
+
+    test get_service_configuration-8.0 {
+        Verify -dependencies option for service without dependencies
+    } -constraints {
+        nt
+    } -body {
+        catch {unset svcinfo}
+        array set svcinfo [twapi::get_service_configuration seclogon -dependencies]
+        list -dependencies $svcinfo(-dependencies)
+    } -result {-dependencies {}}
+
+    
+    ###
+
+    test get_service_configuration-8.1 {
+        Verify -dependencies option for service with dependencies
+    } -constraints {
+        nt
+    } -body {
+        catch {unset svcinfo}
+        array set svcinfo [twapi::get_service_configuration LmHosts -dependencies]
+        list -dependencies [setops::symdiff $svcinfo(-dependencies) [list "NetBT" "Afd"]]
+    } -result {-dependencies {}}
+
+    ###
+
+    test get_service_configuration-9.0 {
+        Verify -account option for service
+    } -constraints {
+        nt
+    } -body {
+        catch {unset svcinfo}
+        array set svcinfo [twapi::get_service_configuration seclogon -account]
+        list -account $svcinfo(-account)
+    } -result {-account LocalSystem}
+
+    
+    ###
+
+    test get_service_configuration-10.0 {
+        Verify -starttype option for auto start services
+    } -constraints {
+        nt
+    } -body {
+        catch {unset svcinfo}
+        array set svcinfo [twapi::get_service_configuration lanmanworkstation -starttype]
+        list -starttype $svcinfo(-starttype)
+    } -result {-starttype auto_start}
+
+    ###
+
+    test get_service_configuration-10.1 {
+        Verify -starttype option for demand start services
+    } -constraints {
+        nt
+    } -body {
+        catch {unset svcinfo}
+        array set svcinfo [twapi::get_service_configuration MSIserver -starttype]
+        list -starttype $svcinfo(-starttype)
+    } -result {-starttype demand_start}
+
+    ###
+
+    test get_service_configuration-10.2 {
+        Verify -starttype option for disabled services
+    } -constraints {
+        nt
+    } -body {
+        catch {unset svcinfo}
+        array set svcinfo [twapi::get_service_configuration RemoteAccess -starttype]
+        list -starttype $svcinfo(-starttype)
+    } -result {-starttype disabled}
+
+    ###
+
+    test get_service_configuration-11.0 {
+        Verify -command option for a service
+    } -constraints {
+        nt
+    } -body {
+        catch {unset svcinfo}
+        array set svcinfo [twapi::get_service_configuration rpcss -command]
+        string tolower $svcinfo(-command)
+    } -match regexp -result {^.:\\.+\\system32\\svchost(\.exe)? -k rpcss$}
+
+    ################################################################
+
+    test get_service_status-1.0 {
+        Get the status of a service
+    } -constraints {
+        nt
+    } -body {
+        catch {unset svcinfo}
+        set result [list ]
+        foreach svcname [get_service_names] {
+            array set svcinfo [twapi::get_service_status $svcname]
+            lappend result [verify_service $svcname svcinfo]
+        }
+        concat [join $result \n]
+    } -result ""
+
+    ################################################################
+
+    test get_service_state-1.0 {
+        Get the state of a service
+    } -constraints {
+        nt
+    } -body {
+        set result [list ]
+        foreach svcname [get_service_names] {
+            if {[twapi::get_service_state $svcname] ne [string map [list " " _] [get_service_field $svcname state]]} {
+                lappend result "State mismatch for service $svcname (expected '[get_service_field $svcname state]', got '[twapi::get_service_state $svcname]')"
+            }
+        }
+        concat [join $result \n]
+    } -result ""
+
+    ################################################################
+
+    test get_multiple_service_status-1.0 {
+        Get the status of all services
+    } -constraints {
+        nt
+    } -body {
+        catch {unset svcinfo}
+        set result [list ]
+        foreach {name svc} [twapi::get_multiple_service_status] {
+            array set svcinfo $svc
+            if {[string match "win32*" $svcinfo(servicetype)]} {
+                  lappend result [verify_service $svcinfo(name) svcinfo]
+            }
+        }
+        concat [join $result \n]
+    } -result ""
+    
+    ###
+
+    test get_multiple_service_status-1.1 {
+        Get the status of all active services
+    } -constraints {
+        nt
+    } -body {
+        catch {unset svcinfo}
+        set result [list ]
+        foreach {name svc} [twapi::get_multiple_service_status -active] {
+            array set svcinfo $svc
+            # Verify that the service is running
+            if {$svcinfo(state) != "running" && $svcinfo(state) != "start_pending"} {
+                lappend result "$svcinfo(name) is not active"
+            }
+            if {[string match "win32*" $svcinfo(servicetype)]} {
+                  lappend result [verify_service $svcinfo(name) svcinfo]
+            }
+        }
+        concat [join $result \n]
+    } -result ""
+
+    ###
+
+    test get_multiple_service_status-1.2 {
+        Get the status of all inactive services
+    } -constraints {
+        nt
+    } -body {
+        catch {unset svcinfo}
+        set result [list ]
+        foreach {name svc} [twapi::get_multiple_service_status -inactive] {
+            array set svcinfo $svc
+            # Verify that the service is running
+            if {$svcinfo(state) != "stopped"} {
+                lappend result "$svcinfo(name) is active"
+            }
+            if {[string match "win32*" $svcinfo(servicetype)]} {
+                  lappend result [verify_service $svcinfo(name) svcinfo]
+            }
+        }
+        concat [join $result \n]
+    } -result ""
+
+    ###
+
+    test get_multiple_service_status-2.0 {
+        Get the status of only win32 own process services
+    } -constraints {
+        nt
+    } -body {
+        catch {unset svcinfo}
+        set result [list ]
+        foreach {name svc} [twapi::get_multiple_service_status -win32_own_process] {
+            array set svcinfo $svc
+            # Verify that the service is running
+            if {$svcinfo(servicetype) != "win32_own_process"
+                || $svcinfo(servicetype) != [get_service_field $svcinfo(name) servicetype]} {
+                lappend result "$svcinfo(name) is not a win32_own_process"
+            }
+        }
+        concat [join $result \n]
+    } -result ""
+
+    ###
+
+    test get_multiple_service_status-2.1 {
+        Get the status of only win32 shared process services
+    } -constraints {
+        nt
+    } -body {
+        catch {unset svcinfo}
+        set result [list ]
+        foreach {name svc} [twapi::get_multiple_service_status -win32_share_process] {
+            array set svcinfo $svc
+            # Verify that the service is running
+            if {$svcinfo(servicetype) != "win32_share_process"
+                || $svcinfo(servicetype) != [get_service_field $svcinfo(name) servicetype]} {
+                lappend result "$svcinfo(name) is not a win32_share_process"
+            }
+        }
+        concat [join $result \n]
+    } -result ""
+
+    ###
+
+    test get_multiple_service_status-2.2 {
+        Get the status of only kernel driver services
+    } -constraints {
+        nt
+    } -body {
+        catch {unset svcinfo}
+        set result [list ]
+        foreach {name svc} [twapi::get_multiple_service_status -kernel_driver] {
+            array set svcinfo $svc
+            # Verify that the service is running
+            if {$svcinfo(servicetype) != "kernel_driver"} {
+                lappend result "$svcinfo(name) is not a kernel_driver"
+            }
+        }
+        concat [join $result \n]
+    } -result ""
+
+
+    ################################################################
+
+    test get_dependent_service_status-1.0 {
+        Get the status of dependent services
+    } -constraints {
+        nt
+    } -body {
+        catch {unset svcinfo}
+        set result [list ]
+        foreach {name svc} [twapi::get_dependent_service_status rpcss] {
+            array set svcinfo $svc
+            lappend result [verify_service svcinfo $svcinfo(name)]
+        }
+        concat [join $result \n]
+    } -result ""
+
+    ###
+
+    test get_dependent_service_status-1.1 {
+        Verify dependent service list
+    } -constraints {
+        nt
+    } -body {
+        catch {unset svcinfo}
+        set result [list ]
+        foreach {svcname svc} [twapi::get_dependent_service_status lanmanworkstation] {
+            array set svcinfo $svc
+            lappend result $svcinfo(name)
+        }
+        setops::diff $result {SessionEnv RpcLocator Netlogon Messenger Browser BITS Alerter}
+    } -result ""
+
+    ###
+
+    test get_dependent_service_status-1.2 {
+        Verify dependent service list is empty for service with no dependents
+    } -constraints {
+        nt
+    } -body {
+        catch {unset svcinfo}
+        set result [list ]
+        foreach {svcname svc} [twapi::get_dependent_service_status MSIserver] {
+            array set svcinfo $svc
+            lappend result $svcinfo(name)
+        }
+        set result
+    } -result ""
+
+    ################################################################
+
+    test create_service-1.0 {
+        Create a service using defaults
+    } -constraints {
+        nt systemmodificationok
+    } -setup {
+        catch {unset svcinfo}
+        set svccmd  {c:\nosuchdir\nosuchprogram.exe -opt dummy}
+    } -body {
+        set svcname TWAPISVC_[clock clicks]
+        twapi::create_service $svcname $svccmd
+        # Verify it is what we expect
+        set mismatches [list ]
+        array set svcinfo [twapi::get_service_configuration $svcname -all]
+        foreach {opt expected} [list \
+                                    -displayname $svcname \
+                                    -errorcontrol "normal" \
+                                    -servicetype  "win32_own_process" \
+                                    -interactive  0 \
+                                    -loadordergroup ""  \
+                                    -dependencies "" \
+                                    -account      "LocalSystem" \
+                                    -starttype    "auto_start" \
+                                    -command      $svccmd \
+                                   ] {
+            if {$svcinfo($opt) != $expected} {
+                lappend mismatches "Value '$opt' does not match: expected '$expected', got '$svcinfo($opt)'"
+            }
+        }
+        concat [join $mismatches \n]
+    } -cleanup {
+        ensure_service_deleted $svcname
+    } -result ""
+
+    test create_service-1.1 {
+        Create a service using non-default values
+    } -constraints {
+        nt systemmodificationok
+    } -setup {
+        catch {unset svcinfo}
+        set svccmd  {c:\nosuchdir\nosuchprogram.exe -opt dummy}
+    } -body {
+        # TBD - need test -account
+        set svcname TWAPISVC_[clock clicks]
+        set svcdisplay "$svcname display string"
+        twapi::create_service $svcname $svccmd \
+            -displayname  $svcdisplay \
+            -errorcontrol ignore \
+            -servicetype  win32_share_process \
+            -interactive  1 \
+            -loadordergroup "TWAPI Load Group" \
+            -dependencies   rpcss \
+            -starttype      demand_start
+            
+        # Verify it is what we expect
+        set mismatches [list ]
+        array set svcinfo [twapi::get_service_configuration $svcname -all]
+        foreach {opt expected} [list \
+                                    -displayname $svcdisplay  \
+                                    -errorcontrol "ignore" \
+                                    -servicetype  "win32_share_process" \
+                                    -interactive  1 \
+                                    -loadordergroup "TWAPI Load Group" \
+                                    -dependencies rpcss \
+                                    -account      "LocalSystem" \
+                                    -starttype    "demand_start" \
+                                    -command      $svccmd \
+                                   ] {
+            if {$svcinfo($opt) != $expected} {
+                lappend mismatches "Value '$opt' does not match: expected '$expected', got '$svcinfo($opt)'"
+            }
+        }
+        concat [join $mismatches \n]
+    } -cleanup {
+        ensure_service_deleted $svcname
+    } -result ""
+
+    ################################################################
+
+    test delete_service-1.0 {
+        Delete a service
+    } -constraints {
+        nt systemmodificationok
+    } -setup {
+        set svcname TWAPISVC_[clock clicks]
+        set svccmd  {c:\nosuchdir\nosuchprogram.exe -opt dummy}
+        twapi::create_service $svcname $svccmd
+        if {![twapi::service_exists $svcname]} {
+            error "Could not create test service"
+        }
+    } -body {
+        twapi::delete_service $svcname
+        after 10
+        twapi::service_exists $svcname
+    } -result 0
+
+    ################################################################
+
+    test set_service_configuration-1.0 {
+        Verify set_service_configuration -displayname option
+    } -constraints {
+        nt systemmodificationok
+    } -body {
+        check_set_service_configuration -displayname "$service_internal_name [clock clicks]"
+    } -result ""
+
+    test set_service_configuration-2.0 {
+        Verify set_service_configuration -errorcontrol severe option
+    } -constraints {
+        nt systemmodificationok
+    } -body {
+        # For this we also disable the service so that in case we fail
+        # to clean up properly, the system will not fail to start!!
+        check_set_service_configuration -errorcontrol severe -starttype disabled
+    } -cleanup {
+        # For safety and so we can use the service for later tests
+        check_set_service_configuration -errorcontrol ignore -starttype demand_start
+    } -result ""
+
+    test set_service_configuration-2.1 {
+        Verify set_service_configuration -errorcontrol critical option
+    } -constraints {
+        nt systemmodificationok
+    } -body {
+        # For this we also disable the service so that in case we fail
+        # to clean up properly, the system will not fail to start!!
+        check_set_service_configuration -errorcontrol critical -starttype disabled
+    } -cleanup {
+        # For safety and for further tests
+        check_set_service_configuration -errorcontrol ignore -starttype demand_start
+    } -result ""
+
+    test set_service_configuration-2.2 {
+        Verify set_service_configuration -errorcontrol normal option
+    } -constraints {
+        nt systemmodificationok
+    } -body {
+        check_set_service_configuration -errorcontrol normal
+    } -result ""
+
+    test set_service_configuration-2.3 {
+        Verify set_service_configuration -errorcontrol ignore option
+    } -constraints {
+        nt systemmodificationok
+    } -body {
+        check_set_service_configuration -errorcontrol ignore
+    } -result ""
+
+    test set_service_configuration-3.0 {
+        Verify set_service_configuration -servicetype kernel_driver option
+    } -constraints {
+        nt systemmodificationok TBD
+    } -body {
+        TBD because cannot set driver to file that does not exist
+        # Also disable since we are setting a non-existent driver
+        check_set_service_configuration -servicetype kernel_driver -starttype disabled
+    } -result ""
+
+    test set_service_configuration-3.1 {
+        Verify set_service_configuration -servicetype file_system_driver option
+    } -constraints {
+        nt systemmodificationok TBD
+    } -body {
+        TBD because cannot set driver to file that does not exist
+        # Also disable since we are setting a non-existent driver
+        check_set_service_configuration -servicetype file_system_driver -starttype disabled
+    } -result ""
+
+    test set_service_configuration-3.2 {
+        Verify set_service_configuration -servicetype win32_share_process option
+    } -constraints {
+        nt systemmodificationok
+    } -body {
+        check_set_service_configuration -servicetype win32_share_process
+    } -result ""
+
+    test set_service_configuration-3.3 {
+        Verify set_service_configuration -servicetype win32_own_process option
+    } -constraints {
+        nt systemmodificationok
+    } -body {
+        check_set_service_configuration -servicetype win32_own_process
+    } -result ""
+
+
+    test set_service_configuration-4.0 {
+        Verify set_service_configuration -interactive 1 option
+    } -constraints {
+        nt systemmodificationok
+    } -body {
+        check_set_service_configuration -interactive 1
+    } -result ""
+
+    test set_service_configuration-4.1 {
+        Verify set_service_configuration -interactive 0 option
+    } -constraints {
+        nt systemmodificationok
+    } -body {
+        after 100
+        check_set_service_configuration -interactive 0
+    } -result ""
+
+    test set_service_configuration-5.0 {
+        Verify set_service_configuration -loadordergroup
+    } -constraints {
+        nt systemmodificationok
+    } -body {
+        check_set_service_configuration -loadordergroup "TWAPI [clock clicks]"
+    } -result ""
+
+    test set_service_configuration-6.0 {
+        Verify set_service_configuration -dependencies (one)
+    } -constraints {
+        nt systemmodificationok
+    } -body {
+        check_set_service_configuration -dependencies [list rpcss]
+    } -result ""
+
+    test set_service_configuration-6.1 {
+        Verify set_service_configuration -dependencies (multiple)
+    } -constraints {
+        nt systemmodificationok
+    } -body {
+        check_set_service_configuration -dependencies [list rpcss eventlog]
+    } -result ""
+
+    test set_service_configuration-7.0 {
+        Verify set_service_configuration -starttype auto_start
+    } -constraints {
+        nt systemmodificationok
+    } -body {
+        check_set_service_configuration -starttype auto_start
+    } -result ""
+
+    test set_service_configuration-7.1 {
+        Verify set_service_configuration -starttype boot_start
+    } -constraints {
+        nt systemmodificationok TBD
+    } -body {
+        TBD because cannot set driver to file that does not exist
+        # Service type must be driver
+        check_set_service_configuration -servicetype kernel_driver
+        check_set_service_configuration -starttype boot_start
+    } -result ""
+
+    test set_service_configuration-7.2 {
+        Verify set_service_configuration -starttype system_start
+    } -constraints {
+        nt systemmodificationok TBD
+    } -body {
+        TBD because cannot set driver to file that does not exist
+        # Service type must be driver
+        check_set_service_configuration -servicetype kernel_driver
+        check_set_service_configuration -starttype system_start
+    } -result ""
+
+    test set_service_configuration-7.3 {
+        Verify set_service_configuration -starttype demand_start
+    } -constraints {
+        nt systemmodificationok
+    } -body {
+        check_set_service_configuration -starttype demand_start
+    } -result ""
+
+    test set_service_configuration-7.4 {
+        Verify set_service_configuration -starttype disabled
+    } -constraints {
+        nt systemmodificationok
+    } -body {
+        check_set_service_configuration -starttype disabled
+    } -cleanup {
+        # For further test cases
+        check_set_service_configuration -starttype demand_start
+    } -result ""
+
+    test set_service_configuration-8.0 {
+        Verify set_service_configuration -command
+    } -constraints {
+        nt systemmodificationok
+    } -body {
+        check_set_service_configuration -command [file join [tcltest::temporaryDirectory] [clock clicks].exe]
+    } -cleanup {
+        # Since we messed up the command path
+        ensure_service_deleted $service_internal_name
+    } -result ""
+
+
+    # TBD  -account administrator but need to also specify password
+
+    ################################################################
+
+    test start_service-1.0 {
+        Start a service that is not currently running
+    } -constraints {
+        nt systemmodificationok
+    } -setup {
+        ensure_test_service stopped
+    } -body {
+        twapi::start_service $service_internal_name
+        after 100;                     # Wait to give it time
+        twapi::get_service_state $service_internal_name
+    } -result running
+
+    ###
+
+    test start_service-1.1 {
+        Start a service that is already running
+    } -constraints {
+        nt systemmodificationok
+    } -setup {
+        ensure_test_service running
+    } -body {
+        twapi::start_service $service_internal_name
+    } -result 1
+
+    ###
+
+    test start_service-2.0 {
+        Start a service and wait for it to come up
+    } -constraints {
+        nt systemmodificationok
+    } -setup {
+        ensure_test_service stopped
+    } -body {
+        # Check that we come back before the timeout (ie only wait as long
+        # as necessary), return value is 1 and state is running
+        set before [clock seconds]
+        set status [twapi::start_service $service_internal_name -wait 10000]
+        set after [clock seconds]
+        expr {$status &&
+              [string equal [twapi::get_service_state $service_internal_name] running] &&
+              (($after - $before) < 10000)}
+    } -result 1
+
+    ################################################################
+
+    test stop_service-1.0 {
+        Stop a service
+    } -constraints {
+        nt systemmodificationok
+    } -setup {
+        ensure_test_service running
+    } -body {
+        twapi::stop_service $service_internal_name
+        after 100;                     # Wait to give it time
+        twapi::get_service_state $service_internal_name
+    } -result stopped
+
+    ###
+
+    test stop_service-1.1 {
+        Stop a service that is already stopped
+    } -constraints {
+        nt systemmodificationok
+    } -setup {
+        ensure_test_service stopped
+    } -body {
+        twapi::stop_service $service_internal_name
+    } -result 1
+
+    ###
+
+    test stop_service-2.0 {
+        Stop a service with -wait option
+    } -constraints {
+        nt systemmodificationok
+    } -setup {
+        ensure_test_service running
+    } -body {
+        # Check that we come back before the timeout (ie only wait as long
+        # as necessary), return value is 1 and state is running
+        set before [clock seconds]
+        set status [twapi::stop_service $service_internal_name -wait 10000]
+        set after [clock seconds]
+        expr {$status &&
+              [string equal [twapi::get_service_state $service_internal_name] stopped] &&
+              (($after - $before) < 10000)}
+    } -result 1
+
+    ################################################################
+
+    test pause_service-1.0 {
+        Pause a service
+    } -constraints {
+        nt
+    } -setup {
+        ensure_test_service running
+    } -body {
+        twapi::pause_service $service_internal_name
+        after 100;                     # Wait to give it time
+        twapi::interrogate_service $service_internal_name
+        set status [twapi::get_service_state $service_internal_name]
+        exec net continue $service_internal_name
+        set status
+    } -result paused
+
+    ###
+
+    test pause_service-1.1 {
+        Pause a service that is already paused
+    } -constraints {
+        nt
+    } -setup {
+        ensure_test_service paused
+    } -body {
+        twapi::pause_service $service_internal_name
+        twapi::get_service_state $service_internal_name
+    } -result paused
+
+    ###
+
+    test pause_service-2.0 {
+        Pause a service with -wait option
+    } -constraints {
+        nt
+    } -setup {
+        ensure_test_service running
+    } -body {
+        # Check that we come back before the timeout (ie only wait as long
+        # as necessary), return value is 1 and state is running
+        set before [clock seconds]
+        set status [twapi::pause_service $service_internal_name -wait 10000]
+        set after [clock seconds]
+        set status [expr {$status &&
+                          [string equal [twapi::get_service_state $service_internal_name] paused] &&
+                          (($after - $before) < 10000)
+                      }]
+        exec net continue $service_internal_name
+        set status
+    } -result 1
+
+    ################################################################
+
+    test continue_service-1.0 {
+        Continue a service that has been paused
+    } -constraints {
+        nt
+    } -setup {
+        ensure_test_service paused
+    } -body {
+        twapi::continue_service $service_internal_name
+        after 100;                     # Wait for it to continue
+        twapi::get_service_state $service_internal_name
+    } -result running
+
+    ###
+
+    test continue_service-2.0 {
+        Continue a service using the -wait option
+    } -constraints {
+        nt
+    } -setup {
+        ensure_test_service paused
+    } -body {
+        set status [twapi::continue_service $service_internal_name -wait 10000]
+        expr {$status &&
+              [string equal [twapi::get_service_state $service_internal_name] running] &&
+              (($after - $before) < 10000)
+          }
+    } -result 1
+
+    ################################################################
+        
+    test interrogate_service-1.0 {
+        Ask a service to update its status
+    } -constraints {
+        nt
+    } -setup {
+        ensure_service_running $service_internal_name
+    } -body {
+        # No real way to verify. Just call and make sure it does
+        # not raise an error
+        twapi::interrogate_service $service_internal_name
+    } -result ""
+
+    ################################################################
+
+    test run_as_service-1.0 {
+        Verify commands for running as a service
+    } -constraints {
+        nt systemmodificationok
+    } -setup {
+        exec [info nameofexecutable] [file join [tcltest::testsDirectory] echoservice.tcl] install $echo_service_name
+    } -body {
+        set state "starting"
+        if {[twapi::start_service $echo_service_name -wait 30000]} {
+            set state "started"
+            twapi::interrogate_service $echo_service_name
+            if {[twapi::get_service_state $echo_service_name] eq "running"} {
+                set state "connecting"
+                set sock [socket 127.0.0.1 2020]
+                set state "connected"
+                fconfigure $sock -buffering line
+                puts $sock "echo test"
+                if {[gets $sock] ne "echo test"} {
+                    set state echovaluefail
+                } else {
+                    # Pause the service
+                    set state pausing
+                    twapi::pause_service $echo_service_name -wait 1000
+                    twapi::interrogate_service $echo_service_name
+                    if {[twapi::get_service_state $echo_service_name] eq "paused"} {
+                        set state continuing
+                        twapi::continue_service $echo_service_name -wait 1000
+                        twapi::interrogate_service $echo_service_name
+                        if {[twapi::get_service_state $echo_service_name] eq "running"} {
+                            # Good, now just stop the service
+                            if {[twapi::stop_service $echo_service_name -wait 30000]} {
+                                set state stopped
+                            }
+                        }
+                    }
+                }
+            }
+            if {$state ne "stopped"} {
+                twapi::stop_service $echo_service_name
+            }
+        }
+        set state
+    } -cleanup {
+        exec [info nameofexecutable] [file join [tcltest::testsDirectory] echoservice.tcl] uninstall $echo_service_name
+    } -result "stopped"
+
+    ################################################################
+
+    ensure_service_deleted $service_internal_name
+    ensure_service_deleted $echo_service_name
+    ::tcltest::cleanupTests
+}
+
+namespace delete ::twapi::services::test

@@ -1,0 +1,1283 @@
+#
+# Copyright (c) 2005-2010, Ashok P. Nadkarni
+# All rights reserved.
+#
+# See the file LICENSE for license
+
+# This file contains tests for commands from nls.tcl
+
+package require tcltest
+eval tcltest::configure $argv
+
+source [file join [file dirname [info script]] testutil.tcl]
+load_twapi_package
+
+#
+# Set up system-specific constants that are used to match test results
+namespace eval twapi::console::test {
+    namespace import ::tcltest::test
+    ::tcltest::testConstraint win2k [twapi::min_os_version 5]
+
+    # Some tests that generate and trap ^C 
+    ::tcltest::testConstraint singleproc [tcltest::configure -singleproc]
+
+    set textattr_fields {
+        -fgblue
+        -fggreen
+        -fgred
+        -fgpurple
+        -fgyellow
+        -fggray
+        -fgbright
+        -fgturquoise
+        -fgwhite
+        -bgblue
+        -bggreen
+        -bgred
+        -bgbright
+        -bgyellow
+        -bgturquoise
+        -bgwhite
+    }
+
+    proc console_event_handler {event} {
+        set ::console_test_event $event
+        return 1
+    }
+
+    ################################################################
+
+    test allocate_console-1.0 {
+        Allocate a console
+    } -constraints {
+        nt 
+    } -body {
+        set title "allocate_console-1.0"
+        set pid [exec [wish_path] testutil.tcl "allocate_console_in_wish $title" &]
+        after 100
+        if {[llength [twapi::find_windows -pids [list $pid] -text $title]] != 1} {
+            # Wait a bit more
+            after 1000
+        }
+        llength [twapi::find_windows -pids [list $pid] -text $title]
+    } -cleanup {
+        twapi::end_process $pid -force
+    } -result 1
+
+    ###
+
+    test allocate_console-1.1 {
+        Allocate a console when one is already allocated
+    } -constraints {
+        nt
+    } -body {
+        # Should generate and exception
+        catch {twapi::allocate_console} msg
+    } -result 1
+
+    ################################################################
+
+    test clear_console-1.0 {
+        Clear a console
+    } -constraints {
+        nt
+    } -body {
+        twapi::clear_console stdout
+    } -result ""
+
+    ###
+
+    test clear_console-1.1 {
+        Clear a console using -fillchar
+    } -constraints {
+        nt
+    } -body {
+        twapi::clear_console stdout -fillchar X
+        # TBD - how to check that X was written?
+        twapi::clear_console stdout
+    } -result ""
+
+    ###
+
+    test clear_console-1.2 {
+        Clear the window portion of a console
+    } -constraints {
+        nt
+    } -body {
+        twapi::clear_console stdout -windowonly true
+    } -result ""
+
+    ################################################################
+
+    test console_write-1.0 {
+        Write a string to the console
+    } -constraints {
+        userInteraction
+    } -body {
+        set s "Sample string for console_write-1.0"
+        twapi::console_write stdout $s
+        yesno "    -- Does this line begin with the string '$s'?"
+    } -result 1
+
+    test console_write-1.1 {
+        Write a string to the console using a handle
+    } -constraints {
+        userInteraction
+    } -setup {
+        set conh [twapi::get_console_handle stdout]
+    } -body {
+        set s "Sample string for console_write-1.1"
+        twapi::console_write $conh $s
+        yesno "    -- Does this line begin with the string '$s'?"
+    } -result 1
+
+
+    test console_write-2.0 {
+        Write a string to the console at a given position and -restoreposition true
+    } -constraints {
+        userInteraction
+    } -body {
+        twapi::clear_console
+        array set info [twapi::get_console_screen_buffer_info stdout -all]
+        set ypos [expr {[lindex $info(-windowpos) 1] + [lindex $info(-windowsize) 1] / 2}]
+        twapi::console_write stdout "XXXXXXX," -position [list 30 $ypos]
+        twapi::console_write stdout "OOOOOOO" -restoreposition true
+        twapi::console_write stdout "YYYYYYY"
+
+        yesno "\nWas a string of X followed by a string of Y's written somewhere in the middle of ths screen?"
+    } -result 1
+
+    test console_write-2.1 {
+        Write a string to the console at a given position and -restoreposition false
+    } -constraints {
+        userInteraction
+    } -body {
+        twapi::clear_console
+        array set info [twapi::get_console_screen_buffer_info stdout -all]
+        set ypos [expr {[lindex $info(-windowpos) 1] + [lindex $info(-windowsize) 1] / 2}]
+        twapi::console_write stdout "XXXXXXX," -position [list 30 $ypos]
+        twapi::console_write stdout "OOOOOOO," -restoreposition false
+        twapi::console_write stdout "YYYYYYY"
+
+        yesno "\nWas a string of X followed by a string of O's, then Y's written somewhere in the middle of ths screen?"
+    } -result 1
+
+
+
+    test console_write-3.0 {
+        Write a string to the console with -newlinemode column 
+    } -constraints {
+        userInteraction
+    } -body {
+        twapi::clear_console
+        array set info [twapi::get_console_screen_buffer_info stdout -all]
+        set ypos [expr {[lindex $info(-windowpos) 1] + [lindex $info(-windowsize) 1] / 2}]
+        twapi::console_write stdout "QQQQQ\nQQQQQ\nQQQQQ" -position [list 35 $ypos] -restoreposition true -newlinemode column
+        yesno "\nWas a BOX of Q's written at middle of screen and this prompt appeared at *original* location?"
+    } -result 1
+
+    test console_write-3.1 {
+        Write a string to the console with -newlinemode line
+    } -constraints {
+        userInteraction
+    } -body {
+        twapi::clear_console
+        array set info [twapi::get_console_screen_buffer_info stdout -all]
+        set ypos [expr {[lindex $info(-windowpos) 1] + [lindex $info(-windowsize) 1] / 2}]
+        twapi::console_write stdout "ZZZZZ\nZZZZZ" -position [list 35 $ypos] -restoreposition true -newlinemode line
+        yesno "\nWas a line of Z's written at middle of screen FOLLOWED BY A LINE STARTING AT COLUMN 0?"
+    } -result 1
+
+    test console_write-4.0 {
+        Write a string to the console with carraige returns
+    } -constraints {
+        userInteraction
+    } -body {
+        twapi::clear_console
+        array set info [twapi::get_console_screen_buffer_info stdout -all]
+        set ypos [expr {[lindex $info(-windowpos) 1] + [lindex $info(-windowsize) 1] / 2}]
+        twapi::console_write stdout "RRRRR\rRRRRR" -position [list 0 $ypos] -restoreposition true -newlinemode column
+        yesno "\nWere 2 lines of R's written at left-middle of screen and this prompt appeared at *original* location?"
+    } -result 1
+
+    test console_write-4.1 {
+        Write a string to the console with line feeds
+    } -constraints {
+        userInteraction
+    } -body {
+        twapi::clear_console
+        array set info [twapi::get_console_screen_buffer_info stdout -all]
+        set ypos [expr {[lindex $info(-windowpos) 1] + [lindex $info(-windowsize) 1] / 2}]
+        twapi::console_write stdout "LLLLL\nLLLLL" -position [list 0 $ypos] -restoreposition true -newlinemode column
+        yesno "\nWere 2 lines of L's written at left-middle of screen and this prompt appeared at *original* location?"
+    } -result 1
+
+    test console_write-4.2 {
+        Write a string to the console with CRLF
+    } -constraints {
+        userInteraction
+    } -body {
+        twapi::clear_console
+        array set info [twapi::get_console_screen_buffer_info stdout -all]
+        set ypos [expr {[lindex $info(-windowpos) 1] + [lindex $info(-windowsize) 1] / 2}]
+        twapi::console_write stdout "VVVVV\r\nVVVVV" -position [list 0 $ypos] -restoreposition true -newlinemode column
+        yesno "\nWere 2 lines of V's written at left-middle of screen WITHOUT INTERVENING BLANK LINE and this prompt appeared at *original* location?"
+    } -result 1
+
+
+    test console_write-5.0 {
+        Write a string to the console to verify default is column mode 
+    } -constraints {
+        userInteraction
+    } -body {
+        twapi::clear_console
+        array set info [twapi::get_console_screen_buffer_info stdout -all]
+        set ypos [expr {[lindex $info(-windowpos) 1] + [lindex $info(-windowsize) 1] / 2}]
+        twapi::console_write stdout "QQQQQ\nQQQQQ\nQQQQQ" -position [list 35 $ypos] -restoreposition true
+        yesno "\nWas a BOX of Q's written at middle of screen and this prompt appeared at *original* location?"
+    } -result 1
+
+
+
+    ################################################################
+
+    test console_read-1.0 {
+        Read the console
+    } -constraints {
+        userInteraction
+    } -body {
+        puts "Type the following: 'twapi rules'"
+        twapi::console_read stdin
+    } -result "twapi rules\r\n"
+
+    test console_read-1.1 {
+        Read the console
+    } -constraints {
+        userInteraction
+    } -setup {
+        set conh [twapi::get_console_handle stdin]
+    } -body {
+        puts "Type the following: 'twapi rules again'"
+        twapi::console_read $conh
+    } -cleanup {
+        twapi::close_handle $conh
+    } -result "twapi rules again\r\n"
+
+    test console_read-2.0 {
+        Read the console with options
+    } -constraints {
+        userInteraction
+    } -body {
+        set orig [twapi::get_console_input_mode stdin]
+            puts "Please type a few characters and use cursor keys to try inserting chars in the middle. Then hit Return."
+        if {[twapi::kl_get $orig -insertmode]} {
+            twapi::console_read stdin -insertmode false
+            set yesno [yesno "Were characters overwritten instead of inserted?"]
+        } else {
+            twapi::console_read stdin -insertmode true
+            set yesno [yesno "Were characters inserted instead of overwritten?"]
+        }
+        set new [twapi::get_console_input_mode stdin]
+        list $yesno [twapi::kl_equal $orig $new]
+    } -result {1 1}
+
+    ################################################################
+
+    test create_console_screen_buffer-1.0 {
+        Create a console screen buffer
+    } -constraints {
+        nt
+    } -body {
+        set hbuf [twapi::create_console_screen_buffer]
+        twapi::console_write $hbuf "dummy string";# To make sure it is valid
+        twapi::close_handle $hbuf
+    } -result ""
+
+    ###
+
+    test create_console_screen_buffer-1.1 {
+        Create a inheritable console screen buffer 
+    } -constraints {
+        nt
+    } -body {
+        set hbuf [twapi::create_console_screen_buffer -inherit true]
+        # TBD - How to check it is inheritable
+        twapi::console_write $hbuf "dummy string";# To make sure it is valid
+        twapi::close_handle $hbuf
+    } -result ""
+
+    ###
+
+    test create_console_screen_buffer-1.2 {
+        Create a non-inheritable console screen buffer 
+    } -constraints {
+        nt
+    } -body {
+        set hbuf [twapi::create_console_screen_buffer -inherit false]
+        # TBD - How to check it is not inheritable
+        twapi::console_write $hbuf "dummy string";# To make sure it is valid
+        twapi::close_handle $hbuf
+    } -result ""
+
+    ###
+
+    test create_console_screen_buffer-1.3 {
+        Create a read-only console screen buffer 
+    } -constraints {
+        nt
+    } -body {
+        set hbuf [twapi::create_console_screen_buffer -mode read]
+        # TBD - need a test that it is readable
+        set readonly [catch {twapi::console_write $hbuf "dummy string"} msg]
+        twapi::close_handle $hbuf
+        set readonly
+    } -result 1
+
+    ###
+
+    test create_console_screen_buffer-1.4 {
+        Create a write-only console screen buffer 
+    } -constraints {
+        TBD nt
+    } -body {
+        # TBD - Note this test fails for some reason. The buffer is not
+        # writable if just -mode write is specified. Tested this
+        # directly from C as well.
+        set hbuf [twapi::create_console_screen_buffer -mode write]
+        # TBD - eed a test that it is not readable
+        set readonly [catch {twapi::console_write $hbuf "dummy string"} msg]
+        twapi::close_handle $hbuf
+        set readonly
+    } -result 0
+
+    ###
+
+    test create_console_screen_buffer-1.5 {
+        Create a read-write console screen buffer 
+    } -constraints {
+        nt
+    } -body {
+        set hbuf [twapi::create_console_screen_buffer -mode readwrite]
+        # TBD - need a test that it is readable
+        set readable 1
+        set readonly [catch {twapi::console_write $hbuf "dummy string"} msg]
+        twapi::close_handle $hbuf
+        expr {$readable && !$readonly}
+    } -result 1
+
+    ###
+
+    test create_console_screen_buffer-1.6 {
+        Create a console screen buffer with a security descriptor
+    } -constraints {
+        nt
+    } -body {
+        set hbuf [twapi::create_console_screen_buffer -secd ""]
+        # TBD - need a test for the security descriptor
+        twapi::console_write $hbuf "dummy string"
+        twapi::close_handle $hbuf
+    } -result ""
+
+    ###
+
+    test create_console_screen_buffer-1.7 {
+        Create a exclusive console screen buffer 
+    } -constraints {
+        nt
+    } -body {
+        set hbuf [twapi::create_console_screen_buffer -share none]
+        # TBD - need a test that it is not shared
+        twapi::console_write $hbuf "dummy string"
+        twapi::close_handle $hbuf
+    } -result ""
+
+    ###
+
+    test create_console_screen_buffer-1.8 {
+        Create a console screen buffer with shared read
+    } -constraints {
+        nt
+    } -body {
+        set hbuf [twapi::create_console_screen_buffer -share read]
+        # TBD - need a test that it is shared for reading
+        twapi::console_write $hbuf "dummy string"
+        twapi::close_handle $hbuf
+    } -result ""
+
+    ###
+
+    test create_console_screen_buffer-1.9 {
+        Create a console screen buffer with shared write
+    } -constraints {
+        nt
+    } -body {
+        set hbuf [twapi::create_console_screen_buffer -share write]
+        # TBD - need a test that it is shared for writing
+        twapi::console_write $hbuf "dummy string"
+        twapi::close_handle $hbuf
+    } -result ""
+
+    ###
+
+    test create_console_screen_buffer-1.10 {
+        Create a console screen buffer with shared readwrite
+    } -constraints {
+        nt
+    } -body {
+        set hbuf [twapi::create_console_screen_buffer -share readwrite]
+        # TBD - need a test that it is shared for reading and writing
+        twapi::console_write $hbuf "dummy string"
+        twapi::close_handle $hbuf
+    } -result ""
+
+    ################################################################
+
+    test fill_console-1.0 {
+        Fill the console buffer with attributes
+    } -constraints {
+        nt
+    } -body {
+        twapi::fill_console stdout -fgblue true -fgred true -fggreen true -bgblue false -bgred true -bggreen false
+        if {[tcltest::testConstraint userInteraction]} {
+            yesno "Is the console existing text filled with gray on red?"
+        } else {
+            lindex 1
+        }
+    } -result 1
+
+    ###
+
+    test fill_console-1.1 {
+        Fill the console buffer with attributes within the visible window
+    } -constraints {
+        userInteraction
+    } -body {
+        twapi::fill_console stdout -window true -bgblue true -fggray true
+        if {[tcltest::testConstraint userInteraction]} {
+            yesno "Is the console filled with blue background AND scrolling up still has the original colors?"
+        } else {
+            lindex 1
+        }
+    } -result 1
+
+    ###
+
+    test fill_console-1.2 {
+        Fill the console buffer with attributes within column range
+    } -constraints {
+        userInteraction
+    } -body {
+        twapi::fill_console stdout -bggreen true -numcols 10
+        if {[tcltest::testConstraint userInteraction]} {
+            yesno "Were the first 10 columns filled with green background?"
+        } else {
+            lindex 1
+        }
+    } -result 1
+
+    ###
+
+    test fill_console-1.3 {
+        Fill the console buffer with attributes in linemode
+    } -constraints {
+        nt
+    } -body {
+        twapi::fill_console stdout -bggreen true -mode line
+    } -result ""
+
+    ###
+
+    test fill_console-1.4 {
+        Fill the console buffer with attributes within column range in linemode
+    } -constraints {
+        nt
+    } -body {
+        twapi::fill_console stdout -bgred true -mode column
+    } -result ""
+
+    ###
+
+    test fill_console-1.5 {
+        Fill the console buffer with attributes starting at a position
+    } -constraints {
+        userInteraction
+    } -body {
+        twapi::fill_console stdout -bgblue true -bggreen true -position {40 0}
+        if {[tcltest::testConstraint userInteraction]} {
+            yesno "Was the right half filled with turqoise background?"
+        } else {
+            lindex 1
+        }
+    } -result 1
+
+
+    ################################################################
+
+    test flush_console_input-1.0 {
+        Flush the console input
+    } -constraints {
+        nt
+    } -body {
+        twapi::flush_console_input stdin
+    } -result ""
+
+    ################################################################
+
+    test free_console-1.0 {
+        Free a console
+    } -constraints {
+        nt
+    } -body {
+        set title "free_console-1.0"
+        set pid [exec [wish_path] testutil.tcl "free_console_in_wish $title" &]
+        after 100
+        if {[llength [twapi::find_windows -pids [list $pid] -text $title]] != 1} {
+            # Wait a bit more
+            after 1000
+        }
+        if {[llength [twapi::find_windows -pids [list $pid] -text $title]] != 1} {
+            error "Failure locating console window"
+        }
+        # Wait for target to close the console
+        after 2000
+        if {[llength [twapi::find_windows -pids [list $pid] -text $title]]} {
+            after 3000
+        }
+        llength [twapi::find_windows -pids [list $pid] -text $title]
+    } -cleanup {
+        twapi::end_process $pid -force
+    } -result 0
+
+    ################################################################
+
+    test set_console_control_handler-1.0 {
+        Handle a Ctrl-C event for the console
+    } -constraints {
+        nt userInteraction singleproc
+    } -body {
+        twapi::set_console_control_handler [namespace current]::console_event_handler
+        after 5000 {set ::console_test_event timeout}
+        puts "Please hit Ctrl-C"
+        vwait ::console_test_event
+        set ::console_test_event
+    } -cleanup {
+        twapi::set_console_control_handler ""
+    } -result ctrl-c
+
+    test set_console_control_handler-1.1 {
+        Handle a Ctrl-break event for the console
+    } -constraints {
+        nt userInteraction singleproc
+    } -body {
+        twapi::set_console_control_handler [namespace current]::console_event_handler
+        after 5000 {set ::console_test_event timeout}
+        puts "Please hit Ctrl-break"
+        vwait ::console_test_event
+        set ::console_test_event
+    } -cleanup {
+        twapi::set_console_control_handler ""
+    } -result ctrl-break
+
+    test set_console_control_handler-2.1 {
+        Reset the control handler for the console
+    } -constraints {
+        nt userInteraction singleproc TBD
+    } -body {
+        Not clear how to test console handler reset without exiting.
+    } -result ctrl-break
+
+    ################################################################
+
+    test generate_console_control_event-1.0 {
+        Generate a Ctrl-C event for the console
+    } -constraints {
+        nt singleproc
+    } -setup {
+        twapi::set_console_control_handler [namespace current]::console_event_handler
+    } -body {
+        twapi::generate_console_control_event ctrl-c
+        after 1000 {set ::console_test_event timeout}
+        vwait ::console_test_event
+        set ::console_test_event
+    } -cleanup {
+        twapi::set_console_control_handler ""
+    } -result ctrl-c
+
+    ###
+
+    test generate_console_control_event-1.1 {
+        Generate a Ctrl-Break event for the console
+    } -constraints {
+        nt singleproc
+    } -setup {
+        twapi::set_console_control_handler [namespace current]::console_event_handler
+    } -body {
+        twapi::generate_console_control_event ctrl-break
+        after 1000 {set ::console_test_event timeout}
+        vwait ::console_test_event
+        set ::console_test_event
+    } -cleanup {
+        twapi::set_console_control_handler ""
+    } -result ctrl-break
+
+    ###
+
+    test generate_console_control_event-2.0 {
+        Generate a Ctrl-break event for a process group
+    } -constraints {
+        nt TBD
+    } -body {
+    } -result 1
+
+    ################################################################
+
+    test get_console_handle-1.0 {
+        Get the console input handle
+    } -constraints {
+        nt
+    } -body {
+        twapi::close_handle [twapi::get_console_handle stdin]
+    } -result ""
+
+    ###
+
+    test get_console_handle-1.1 {
+        Get the console output handle
+    } -constraints {
+        nt
+    } -body {
+        twapi::close_handle [twapi::get_console_handle stdout]
+    } -result ""
+
+    ################################################################
+
+    test get_console_input_codepage-1.0 {
+        Get the console input code page
+    } -constraints {
+        nt
+    } -body {
+        string is integer [twapi::get_console_input_codepage]
+    } -result 1
+
+    ################################################################
+
+    test get_console_input_mode-1.0 {
+        Get the console input mode
+    } -constraints {
+        nt
+    } -body {
+        verify_kl_fields [twapi::get_console_input_mode stdin] {-echoinput -quickeditmode -windowinput -lineinput -processedinput -mouseinput -autoposition -extendedmode -insertmode}
+    } -result ""
+
+    ################################################################
+
+    test get_console_output_mode-1.0 {
+        Get the console output mode
+    } -constraints {
+        nt
+    } -body {
+        verify_kl_fields [twapi::get_console_output_mode stdout] {-processedoutput -wrapoutput}
+    } -result ""
+
+
+    ################################################################
+
+    test get_console_pending_input_count-1.0 {
+        Get the console pending input event count
+    } -constraints {
+        nt
+    } -body {
+        string is integer [twapi::get_console_pending_input_count stdin]
+    } -result 1
+
+    ################################################################
+
+    test get_console_screen_buffer_info-1.0 {
+        Get the console screen buffer info (no options)
+    } -constraints {
+        nt
+    } -body {
+        twapi::get_console_screen_buffer_info stdout
+    } -result ""
+
+    test get_console_screen_buffer_info-2.0 {
+        Get the console screen buffer default text attributes
+    } -constraints {
+        nt
+    } -setup {
+        set orig_attrs [twapi::get_console_screen_buffer_info stdout -textattr]
+        twapi::set_console_default_attr stdout -fgred 1 -bggreen 1
+    } -body {
+        set attrs [twapi::get_console_screen_buffer_info stdout -textattr]
+        verify_kl_fields $attrs {-textattr}
+        lindex $attrs 1
+    } -cleanup {
+        eval twapi::set_console_default_attr stdout [lindex $orig_attrs 1]
+    } -result {-fgred 1 -bggreen 1} -match set
+
+    ###
+
+    test get_console_screen_buffer_info-3.0 {
+        Get the console screen buffer cursor position
+    } -constraints {
+        nt
+    } -body {
+        set l [twapi::get_console_screen_buffer_info stdout -cursorpos]
+        verify_kl_fields $l [list -cursorpos]
+        verify_integer_pair [lindex $l 1]
+    } -result ""
+
+    ###
+
+    test get_console_screen_buffer_info-4.0 {
+        Get the console screen buffer max window size
+    } -constraints {
+        nt
+    } -body {
+        set l [twapi::get_console_screen_buffer_info stdout -maxwindowsize]
+        verify_kl_fields $l [list -maxwindowsize]
+        verify_integer_pair [lindex $l 1]
+    } -result ""
+
+    ###
+
+    test get_console_screen_buffer_info-5.0 {
+        Get the console screen buffer size
+    } -constraints {
+        nt
+    } -body {
+        set l [twapi::get_console_screen_buffer_info stdout -size]
+        verify_kl_fields $l [list -size]
+        verify_integer_pair [lindex $l 1]
+    } -result ""
+
+    ###
+
+    test get_console_screen_buffer_info-6.0 {
+        Get the console screen buffer window position
+    } -constraints {
+        nt
+    } -body {
+        set l [twapi::get_console_screen_buffer_info stdout -windowpos]
+        verify_kl_fields $l [list -windowpos]
+        verify_integer_pair [lindex $l 1]
+    } -result ""
+
+    ###
+
+    test get_console_screen_buffer_info-7.0 {
+        Get the console screen buffer window size
+    } -constraints {
+        nt
+    } -body {
+        set l [twapi::get_console_screen_buffer_info stdout -windowsize]
+        verify_kl_fields $l [list -windowsize]
+        verify_integer_pair [lindex $l 1]
+    } -result ""
+
+    test get_console_screen_buffer_info-8.0 {
+        Get the console screen buffer info -all
+    } -constraints {
+        nt
+    } -body {
+        verify_kl_fields [twapi::get_console_screen_buffer_info stdout -all] {
+            -cursorpos -size -textattr -maxwindowsize -windowsize -windowpos -windowlocation
+        }
+    } -result ""
+
+    test get_console_screen_buffer_info-9.0 {
+        Get the console screen buffer window position
+    } -body {
+        set l [twapi::get_console_screen_buffer_info stdout -windowlocation]
+        verify_kl_fields $l [list -windowlocation]
+        lindex $l 1
+    } -result {\d+ \d+ \d+ \d+} -match regexp
+
+    ################################################################
+
+    test get_console_title-1.0 {
+        Get title of console window
+    } -constraints {
+        nt
+    } -body {
+        twapi::get_console_title
+    } -result [twapi::get_window_text [twapi::get_console_window]]
+
+    ################################################################
+
+    test get_console_window-1.0 {
+        Get console window
+    } -constraints {
+        nt
+    } -body {
+        twapi::get_window_text [twapi::get_console_window]
+    } -result [twapi::get_console_title]
+
+
+    ################################################################
+
+    test get_console_window_maxsize-1.0 {
+        Get max possible size of console window
+    } -constraints {
+        nt
+    } -body {
+        verify_integer_pair [twapi::get_console_window_maxsize]
+    } -result ""
+
+    ################################################################
+
+    test num_console_mouse_buttons-1.0 {
+        Get number of mouse buttons
+    } -body {
+        string is integer -strict [twapi::num_console_mouse_buttons]
+    } -result 1
+
+    ################################################################
+
+    test get_standard_handle-1.0 {
+        Get standard output handle
+    } -constraints {
+        userInteraction singleproc
+    } -body {
+        # Note: singleproc constraint is present because otherwise
+        # stdout is a pipe, not a console
+        set conh [twapi::get_standard_handle stdout]
+        set str "Testing get_standard_handle-1.0"
+        twapi::console_write $conh $str\n
+        yesno " -- Did you see the string '$str' written to the console?"
+    } -result 1
+
+    test get_standard_handle-1.1 {
+        Get standard input handle
+    } -body {
+        # Tclsh redirects so cannot actually read from this
+        set conh [twapi::get_standard_handle stdin]
+    } -result {\d+ HANDLE} -match regexp
+
+
+    ################################################################
+
+    test get_console_output_codepage-1.0 {
+        Get console output codepage
+    } -body {
+        twapi::get_console_output_codepage
+    } -result 437
+
+
+    ################################################################
+
+    test set_console_default_attr-1.0 {
+        Set console default attribute
+    } -constraints {
+        userInteraction
+    } -body {
+        set colors {
+            -fgred -bgwhite
+            -fgpurple -bgyellow
+            -fgyellow -bgpurple
+            -fgturquoise -bgred
+            -fgblue -bgturquoise
+            -fggray -bggreen
+            -fggreen -bggray
+            -fgwhite -bgblue
+        }
+        foreach {fg bg} $colors {
+            twapi::set_console_default_attr stdout $fg true $bg true
+            twapi::console_write stdout "[string totitle [string range $fg 3 end]] on [string range $bg 3 end]\r\n" -newlinemode line
+        }
+        twapi::set_console_default_attr stdout -fggray 1
+        yesno "Are the colors above displayed correctly AND this line is gray on black?"
+    } -result 1
+
+    test set_console_default_attr-1.1 {
+        Set console default attribute with -white 0
+    } -constraints {
+        userInteraction
+    } -body {
+        # This verifies a bug in previous versions is fixed
+        # -Setting white to 0 would reset all colors
+        set colors {
+            -fgred -bgyellow
+            -fgpurple -bgyellow
+            -fgyellow -bgpurple
+            -fgturquoise -bgred
+            -fgblue -bgturquoise
+            -fggray -bggreen
+            -fggreen -bggray
+        }
+        foreach {fg bg} $colors {
+            twapi::set_console_default_attr stdout $fg true $bg true -fgwhite 0 -bgwhite 0
+            twapi::console_write stdout "[string totitle [string range $fg 3 end]] on [string range $bg 3 end]\r\n" -newlinemode line
+        }
+        twapi::set_console_default_attr stdout -fggray 1
+        yesno "Are the colors above displayed correctly AND this line is gray (or dim white) on black?"
+    } -result 1
+
+    test set_console_default_attr-2.0 {
+        Set console default attribute intensity
+    } -constraints {
+        userInteraction
+    } -body {
+        twapi::set_console_default_attr stdout -fgyellow 1 -bgblue 1
+        twapi::console_write stdout "Yellow on blue (low intensity)\r\n" -newlinemode line
+        twapi::set_console_default_attr stdout -fgyellow 1 -bgblue 1 -fgbright 1 -bgbright 1
+        twapi::console_write stdout "Yellow on blue (high intensity)" -newlinemode line
+        twapi::set_console_default_attr stdout -fggray 1
+        yesno "Are two lines displayed, one low intensity and one high?"
+    } -result 1
+
+
+    ################################################################
+
+    test modify_console_input_mode-1.0 {
+        Modify console input mode for stdin (no options)
+    } -body {
+        set orig [twapi::get_console_input_mode stdin]
+        set prevmode [twapi::modify_console_input_mode stdin]
+        set new [twapi::get_console_input_mode stdin]
+        list [twapi::kl_equal $orig $new] [twapi::kl_equal $orig $prevmode]
+    } -result {1 1}
+
+    test modify_console_input_mode-1.1 {
+        Modify console input mode using explicit handle (no options)
+    } -body {
+        set orig [twapi::get_console_input_mode stdin]
+        set conh [twapi::get_console_handle stdin]
+        twapi::modify_console_input_mode $conh
+        twapi::close_handle $conh
+        set new [twapi::get_console_input_mode stdin]
+        twapi::kl_equal $orig $new
+    } -result 1
+
+    test modify_console_input_mode-2.0 {
+        Modify console input mode -echoinput
+    } -constraints {
+        userInteraction
+    } -setup {
+        set orig [twapi::get_console_input_mode stdin]
+    } -body {
+        puts "Testing echoing of console input"
+        set prevmode [twapi::modify_console_input_mode stdin -echoinput false]
+        pause "Please type a few characters and hit return. Characters should not be displayed."
+        twapi::modify_console_input_mode stdin -echoinput true
+        set unechoed [yesno "Did you see any characters echoed?"]
+        pause "Please type a few characters and hit return. Characters should be be displayed."
+        set echoed [yesno "Did you see any characters echoed?"]
+        set new [twapi::get_console_input_mode stdin]
+        list [twapi::kl_equal $orig $prevmode] $unechoed $echoed [twapi::kl_equal $orig $new]
+    } -result {1 0 1 1}
+
+    test modify_console_input_mode-3.0 {
+        Modify console input mode -insertmode
+    } -constraints {
+        userInteraction
+    } -setup {
+        set orig [twapi::get_console_input_mode stdin]
+    } -body {
+        puts "Testing console insert mode"
+        set prevmode [twapi::modify_console_input_mode stdin -insertmode false]
+        pause "Please type a few characters and use cursor keys to try inserting chars in the middle."
+        set overwritten [yesno "Were characters overwritten?"]
+        twapi::modify_console_input_mode stdin -insertmode true
+        pause "Please type a few characters and use cursor keys to try inserting chars in the middle."
+        set inserted [yesno "Were characters inserted?"]
+        set new [twapi::get_console_input_mode stdin]
+        list [twapi::kl_equal $orig $prevmode] $overwritten $inserted [twapi::kl_equal $orig $new]
+    } -result {1 1 1 1}
+
+    test modify_console_input_mode-4.0 {
+        Modify console input mode -lineinput
+    } -constraints {
+        userInteraction
+    } -setup {
+        set orig [twapi::get_console_input_mode stdin]
+    } -body {
+        puts "Testing echoing of console lineinput mode"
+        twapi::modify_console_input_mode stdin -lineinput false -echoinput false
+        puts "Please type the single char 'x'. Do NOT hit RETURN"
+        set x [twapi::console_read]
+        twapi::modify_console_input_mode stdin -lineinput true -echoinput true
+        puts "Now type the characters 'abc' followed by Return"
+        set y [twapi::console_read]
+        puts [string length $y]
+        list $x $y
+    } -cleanup {
+        eval [list twapi::set_console_input_mode stdin] $orig
+    } -result [list x abc\r\n]
+    
+    test modify_console_input_mode-5.0 {
+        Modify console input mode -quickeditmode
+    } -constraints {
+        userInteraction
+    } -setup {
+        set orig [twapi::get_console_input_mode stdin]
+    } -body {
+        puts "Testing console quickedit mode"
+        set prevmode [twapi::modify_console_input_mode stdin -quickeditmode false]
+        set quick1 [yesno "Please try to select text with a mouse. Were you able to do so?"]
+        twapi::modify_console_input_mode stdin -quickeditmode true
+        set quick2 [yesno "Please try to select text with a mouse. Were you able to do so?"]
+        list [twapi::kl_equal $orig $prevmode] $quick1 $quick2
+    } -cleanup {
+        eval [list twapi::set_console_input_mode stdin] $orig
+    } -result {1 0 1}
+
+
+    ################################################################
+
+    test modify_console_output_mode-1.0 {
+        Modify console output mode for stdout (no options)
+    } -body {
+        set orig [twapi::get_console_output_mode stdout]
+        set prevmode [twapi::modify_console_output_mode stdout]
+        set new [twapi::get_console_output_mode stdout]
+        list [twapi::kl_equal $orig $new] [twapi::kl_equal $orig $prevmode]
+    } -result {1 1}
+
+    test modify_console_output_mode-1.1 {
+        Modify console output mode using explicit handle (no options)
+    } -body {
+        set orig [twapi::get_console_output_mode stdout]
+        set conh [twapi::get_console_handle stdout]
+        twapi::modify_console_output_mode $conh
+        twapi::close_handle $conh
+        set new [twapi::get_console_output_mode stdout]
+        twapi::kl_equal $orig $new
+    } -result 1
+    
+    test modify_console_output_mode-2.0 {
+        Modify console output mode -processedoutput
+    } -constraints {
+        userInteraction
+    } -setup {
+        set orig [twapi::get_console_output_mode stdout]
+    } -body {
+        puts "Testing processing of console output"
+        set prevmode [twapi::modify_console_output_mode stdout -processedoutput false]
+        twapi::console_write stdout "\tX"
+        twapi::modify_console_output_mode stdout -processedoutput true
+        set unprocessed [yesno "\nIs the previous line a graphic char followed by X?"]
+        twapi::console_write stdout "\tX"
+        set processed [yesno "\nIs the previous line a tab followed by X?"]
+        list [twapi::kl_equal $orig $prevmode] $unprocessed $processed
+    } -cleanup {
+        eval [list twapi::modify_console_output_mode stdin] $orig
+    } -result {1 1 1}
+
+    test modify_console_output_mode-3.0 {
+        Modify console output mode -wrapoutput
+    } -constraints {
+        userInteraction
+    } -setup {
+        set orig [twapi::get_console_output_mode stdout]
+    } -body {
+        puts "Testing wrapping of console output"
+        set prevmode [twapi::modify_console_output_mode stdout -wrapoutput false]
+        puts [string repeat X 100]
+        twapi::modify_console_output_mode stdout -wrapoutput true
+        set unwrapped [yesno "\nDid the previous row of X wrap around?"]
+        puts [string repeat Y 100]
+        set wrapped [yesno "\nDid the previous line of Y's wrap around ?"]
+        list [twapi::kl_equal $orig $prevmode] $unwrapped $wrapped
+    } -cleanup {
+        eval [list twapi::modify_console_output_mode stdin] $orig
+    } -result {1 0 1}
+
+    ################################################################
+
+    test set_console_title-1.0 {
+        Set title of console window
+    } -setup {
+        set orig_title [twapi::get_console_title]
+    } -body {
+        set title "Testing TWAPI"
+        twapi::set_console_title $title
+        string equal $title [twapi::get_window_text [twapi::get_console_window]]
+    } -cleanup {
+        twapi::set_console_title $orig_title
+    } -result 1
+
+    ################################################################
+
+    test set_console_window_location-1.0 {
+        Set the absolute location of the console window
+    } -setup {
+        set orig_loc [twapi::get_console_window_location stdout]
+    } -body {
+        twapi::set_console_window_location stdout {0 0 20 20}
+        twapi::get_console_window_location stdout
+    } -cleanup {
+        twapi::set_console_window_location stdout $orig_loc
+    } -result {0 0 20 20}
+
+    test set_console_window_location-2.0 {
+        Set the absolute location of the console window -absolute true
+    } -setup {
+        set orig_loc [twapi::get_console_window_location stdout]
+    } -body {
+        twapi::set_console_window_location stdout {0 0 20 20} -absolute true
+        twapi::get_console_window_location stdout
+    } -cleanup {
+        twapi::set_console_window_location stdout $orig_loc
+    } -result {0 0 20 20}
+
+    test set_console_window_location-2.1 {
+        Set the absolute location of the console window -absolute false
+    } -setup {
+        set orig_loc [twapi::get_console_window_location stdout]
+    } -body {
+        twapi::set_console_window_location stdout {10 -10 -20 -20} -absolute false
+        foreach {lcol trow rcol brow} [twapi::get_console_window_location stdout] break
+        expr {
+              ($lcol - 10) == [lindex $orig_loc 0] &&
+              ($trow + 10) == [lindex $orig_loc 1] &&
+              ($rcol + 20) == [lindex $orig_loc 2] &&
+              ($brow + 20) == [lindex $orig_loc 3]
+          }
+    } -cleanup {
+        twapi::set_console_window_location stdout $orig_loc
+    } -result 1
+
+    ################################################################
+
+    test get_console_window_location-1.0 {
+        Get location of window within console buffer
+    } -body {
+        twapi::get_console_window_location stdout
+    } -result {\d+ \d+ \d+ \d+} -match regexp
+
+    test get_console_window_location-1.1 {
+        Get location of window within console buffer with explicit handle
+    } -setup {
+        set conh [twapi::get_console_handle stdout]
+    } -body {
+        twapi::get_console_window_location $conh
+    } -cleanup {
+        twapi::close_handle $conh
+    } -result {\d+ \d+ \d+ \d+} -match regexp
+
+
+    ################################################################
+
+    test get_console_cursor_position-1.0 {
+        Get location of cursor in console buffer
+    } -body {
+        twapi::get_console_cursor_position stdout
+    } -result {\d+ \d+} -match regexp
+
+    test get_console_cursor_position-1.1 {
+        Get location of cursor in console buffer with explicit handle
+    } -setup {
+        set conh [twapi::get_console_handle stdout]
+    } -body {
+        twapi::get_console_cursor_position $conh
+    } -cleanup {
+        twapi::close_handle $conh
+    } -result {\d+ \d+} -match regexp
+    
+
+    ################################################################
+
+    test set_console_cursor_position-1.0 {
+        Set location of cursor in console buffer
+    } -setup {
+        set curpos [twapi::get_console_cursor_position stdout]
+    } -body {
+        twapi::set_console_cursor_position stdout {10 20}
+        twapi::get_console_cursor_position stdout
+    } -cleanup {
+        twapi::set_console_cursor_position stdout $curpos
+    } -result {10 20}
+
+    test set_console_cursor_position-1.1 {
+        Set location of cursor in console buffer using explicit handle
+    } -setup {
+        set conh [twapi::get_console_handle stdout]
+        set curpos [twapi::get_console_cursor_position $conh]
+    } -body {
+        twapi::set_console_cursor_position $conh {15 25}
+        twapi::get_console_cursor_position $conh
+    } -cleanup {
+        twapi::set_console_cursor_position $conh $curpos
+        twapi::close_handle $conh
+    } -result {15 25}
+
+    ################################################################
+
+    test set_console_input_codepage-1.0 {
+        Set input code page
+    } -setup {
+        set cp [twapi::get_console_input_codepage]
+    } -body {
+        twapi::set_console_input_codepage 1252
+        twapi::get_console_input_codepage
+    } -cleanup {
+        twapi::set_console_input_codepage $cp
+    } -result 1252
+
+    ################################################################
+
+    test set_console_output_codepage-1.0 {
+        Set output code page
+    } -setup {
+        set cp [twapi::get_console_output_codepage]
+    } -body {
+        twapi::set_console_output_codepage 1252
+        twapi::get_console_output_codepage
+    } -cleanup {
+        twapi::set_console_output_codepage $cp
+    } -result 1252
+
+    ################################################################
+
+    test set_console_screen_buffer_size-1.0 {
+        Set screen buffer size
+    } -setup {
+        set sz [lindex [twapi::get_console_screen_buffer_info stdout -size] 1]
+    } -body {
+        twapi::set_console_screen_buffer_size stdout {85 305}
+        lindex [twapi::get_console_screen_buffer_info stdout -size] 1
+    } -cleanup {
+        twapi::set_console_screen_buffer_size stdout $sz
+    } -result {85 305}
+
+    test set_console_screen_buffer_size-1.1 {
+        Set screen buffer size with explicit handle
+    } -setup {
+        set conh [twapi::get_console_handle stdout]
+        set sz [lindex [twapi::get_console_screen_buffer_info $conh -size] 1]
+    } -body {
+        twapi::set_console_screen_buffer_size $conh {90 310}
+        lindex [twapi::get_console_screen_buffer_info $conh -size] 1
+    } -cleanup {
+        twapi::set_console_screen_buffer_size $conh $sz
+        twapi::close_handle $conh
+    } -result {90 310}
+
+    ################################################################
+
+    test set_console_active_screen_buffer-1.0 {
+        Set the active screen buffer
+    } -constraints {
+        userInteraction
+    } -setup {
+        set newbuf [twapi::create_console_screen_buffer -mode readwrite]
+        set origbuf [twapi::get_console_handle stdout]
+    } -body {
+        twapi::console_write $newbuf "This new empty screen buffer will be displayed for 5 seconds."
+        twapi::set_console_active_screen_buffer $newbuf
+        after 3000
+        twapi::set_console_active_screen_buffer $origbuf
+        yesno "Did you see the new screen buffer for a few seconds?"
+    } -cleanup {
+        twapi::close_handle $newbuf
+    } -result 1
+
+    ################################################################
+
+    #
+    # Clean up
+    ::tcltest::cleanupTests
+}
+
+namespace delete ::twapi::console::test

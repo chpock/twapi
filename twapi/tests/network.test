@@ -1,0 +1,1417 @@
+#
+# Copyright (c) 2003-2010, Ashok P. Nadkarni
+# All rights reserved.
+#
+# See the file LICENSE for license
+
+# This file contains tests for commands from the share.tcl
+
+package require tcltest
+eval tcltest::configure $argv
+
+source [file join [file dirname [info script]] testutil.tcl]
+load_twapi_package
+
+namespace eval twapi::network::test {
+    namespace import ::tcltest::test
+
+    ::tcltest::testConstraint win2k [twapi::min_os_version 5]
+    ::tcltest::testConstraint ipv6  [expr {! [catch {exec netsh interface ipv6 show address}]}]
+    ::tcltest::testConstraint tclipv6 [package vsatisfies [package require Tcl] 8.6b1.2]
+
+    variable get_tcp_connections_fields {
+        -state
+        -localaddr
+        -remoteaddr
+        -localport
+        -remoteport
+        -pid
+        -modulename
+        -modulepath
+        -bindtime
+    }
+    variable get_udp_connections_fields {
+            -localaddr
+            -localport
+            -pid
+            -modulename
+            -modulepath
+            -bindtime
+    }
+    proc validate_netif_indices {indices} {
+        foreach i $indices {
+            if {![string is integer $i]} {return 0}
+        }
+        return 1
+    }
+    proc resolvable_hostname {} {
+        # Has both IPv4 and IPv6
+        return ftp.netbsd.org
+    }
+    proc resolvable_address {} {
+        return 209.131.36.158;          # A yahoo address
+    }
+    proc resolvable_address_domain {} {
+        return yahoo.com
+    }
+    proc resolvable_address6 {} {
+        return 2001:4f8:3:7:230:48ff:fec6:9aaa
+    }
+    proc resolvable_address6_domain {} {
+        return netbsd.org
+    }
+    proc our_ipaddr {} {
+        foreach ipaddr [twapi::get_ip_addresses -ipversion 4] {
+            if {$ipaddr ne "127.0.0.1"} {
+                return $ipaddr
+            }
+        }
+        error "Could not find our IP address"
+    }
+
+    # Validate a connection
+    # fields, if present, specifies fields that must be present
+    # matchdata, if present, specifies field values that must match
+    proc validate_connection [list conndata \
+                                  [list fields $get_tcp_connections_fields] \
+                                  [list matchdata {}]] {
+        if {[llength $fields]} {
+            verify_kl_fields $conndata $fields false
+        }
+        array set match $matchdata
+        array set conn $conndata
+        # state does not exist for UDP, only TCP
+        if {[info exists conn(-state)]} {
+            if {[string is integer -strict $conn(-state)]} {
+                if {$conn(-state) <= 0 || $conn(-state) >= 13} {
+                    return "Invalid connection state $conn(-state)"
+                }
+            } else {
+                if {![info exists ::twapi::tcp_statevalues($conn(-state))]} {
+                    return "Invalid connection state $conn(-state)"
+                }
+            }
+        }
+
+        if {[info exists conn(-remoteaddr)]
+            && ![valid_ip_address $conn(-remoteaddr)]} {
+            return "Invalid remote address $conn(-remoteaddr)"
+        }
+        if {[info exists conn(-localaddr)]
+            && ![valid_ip_address $conn(-localaddr)]} {
+            return "Invalid local address $conn(-localaddr)"
+        }
+
+        if {[info exists conn(-remoteport)]} {
+            if {(![string is integer -strict $conn(-remoteport)]) ||
+                ($conn(-remoteport) < 0 || $conn(-remoteport) > 65535)} {
+                return "Invalid remote port $conn(-remoteport)"
+            }
+        }
+        if {[info exists conn(-localport)]} {
+            if {(![string is integer -strict $conn(-localport)]) ||
+                ($conn(-localport) < 0 || $conn(-localport) > 65535)} {
+                return "Invalid local port $conn(-localport)"
+            }
+        }
+        # Note on some platforms, PID not available, and empty string is
+        # returned
+        if {[info exists conn(-pid)] && $conn(-pid) ne ""} {
+            # TBD - should we do a process exist check ? But it might have
+            # gone away
+            if {(! [string is integer $conn(-pid)])
+                || $conn(-pid) < 0 || $conn(-pid) > 32000} {
+                return "Invalid PID '$conn(-pid)'"
+            }
+        }
+
+        # Verify any specified fields that should match
+        foreach {opt val} $matchdata {
+            if {![info exists conn($opt)]} {
+                return "Field $opt was expected to contain $val, but did not exist."
+            }
+            if {$val ne $conn($opt)} {
+                return "Field $opt value is '$conn($opt)', expected '$val'"
+            }
+        }
+
+        return
+    }
+
+    proc validate_connections [list conns \
+                                   [list mincount 1] \
+                                   [list fields $get_tcp_connections_fields] \
+                                  [list matchdata {}]] {
+        if {[llength $conns] < $mincount} {
+            return "Connection list contains only [llength $conns] connections. Expected at least $mincount"
+        }
+        foreach conn $conns {
+            set msg [validate_connection $conn $fields $matchdata]
+            if {$msg ne ""} {
+                return $msg
+            }
+        }
+        return ""
+    }
+
+    proc validate_route {routedata} {
+        verify_kl_fields $routedata {
+            -addr -ifindex -policy -protocol -nexthopas -mask -age -metric1 -nexthop -metric2 -metric3 -metric4 -metric5 -type
+        }
+
+        array set route $routedata
+
+        foreach fld {addr mask nexthop} {
+            if {![valid_ip_address $route(-$fld)]} {
+                return "Invalid -$fld field: $route(-$fld)"
+            }
+        }
+
+        if {[lsearch -exact [twapi::get_netif_indices] $route(-ifindex)] < 0} {
+            return "Field -ifindex ($route(-ifindex)) not found in list of network interface indices"
+        }
+
+        foreach fld {metric1 metric2 metric3 metric4 metric5 age nexthopas policy} {
+            if {![string is integer -strict $route(-$fld)]} {
+                return "Invalid -$fld field: $route(-$fld)"
+            }
+        }
+
+        if {![oneof {local remote other invalid} $route(-type)]} {
+            return "Invalid -type field: $route(-type)"
+        }
+
+        if {![oneof {local netmgmt icmp egp ggp hello rip is_is es_is cisco bbn ospf bgp other} $route(-protocol)]} {
+            return "Invalid -type field: $route(-type)"
+        }
+        
+        return ""
+
+    }
+
+    proc validate_arp_entry {arp} {
+        set msgs {}
+        foreach {netif hwaddr ipaddr type} $arp break
+        if {![oneof {dynamic static other invalid} $type]} {
+            lappend msgs "Invalid arp entry type $type"
+        }
+        if {[lsearch -exact [twapi::get_netif_indices] $netif] < 0} {
+            lappend msgs "Interface index $netif not valid."
+        }
+        if {![valid_ip_address $ipaddr]} {
+            lappend "Invalid IP address $ipaddr in ARP table"
+        }
+        if {[string length $hwaddr] &&
+	    ![regexp {^([[:xdigit:]]{2}-){5}[[:xdigit:]]{2}$} $hwaddr]} {
+            lappend msgs "Invalid h/w address $hwaddr in ARP table for ip '$ipaddr'"
+        }
+        return $msgs
+    }
+
+    proc validate_netif {netifdata msgs} {
+        array set netif $netifdata
+
+        if {[info exists netif(-adapterindex)] &&
+            [lsearch -exact [twapi::get_netif_indices] $netif(-adapterindex)] < 0} {
+            lappend msgs "Adapter index $netif(-adapterindex) not found"
+        }
+        if {[info exists netif(-physicaladdress)] &&
+            $netif(-physicaladdress) ne ""} {
+            if {![regexp {^[[:xdigit:]]{2}-{5}[[:xdigit:]]{2}$} $netif(-physicaladdress)]} {
+                lappend msgs "Invalid h/w address $netif(-physicaladdress)."
+            }
+        }
+
+        foreach opt {
+            -defaultgateway -dhcpserver
+        } {
+            if {[info exists netif($opt)] &&
+                (! [valid_ip_address $netif($opt)])} {
+                lappend msgs "Invalid IP address '$netif($opt)' for $opt."
+            }
+        }
+
+        foreach opt {
+            -dnsservers -ipaddresses
+        } {
+            if {[info exists netif($opt)] &&
+                ! [validate_ip_addresses $netif($opt)]} {
+                lappend msgs "Invalid IP addresses '$netif($opt)' for $opt."
+            }
+        }
+
+        foreach opt {
+            -adminstatus -autoconfigactive -autoconfigenabled -dhcpenabled
+            -havewins } {
+            if {[info exists netif($opt)] &&
+                ! [string is boolean -strict $netif($opt)]} {
+                lappend msgs "Invalid non-boolean value '$netif($opt)' for $opt."
+            }
+        }
+
+        foreach opt {
+            -dhcpleaseend -dhcpleasestart -ifindex -inbytes -indiscards
+            -inerrors -innonunicastpkts -inunknownprotocols -laststatuschange
+            -mtu -outbytes -outdiscards -outerrors -outnonunicastpkts -outqlen
+            -outunicastpkts -reassemblysize -speed
+        } {
+            if {[info exists netif($opt)] &&
+                ! [string is integer -strict $netif($opt)]} {
+                lappend msgs "Invalid non-integer value '$netif($opt)' for $opt."
+            }
+        }
+
+    }
+
+    proc validate_netif6 {netifdata msgs} {
+        array set netif $netifdata
+
+        if {[info exists netif(-physicaladdress)] &&
+            $netif(-physicaladdress) ne ""} {
+            if {![regexp {^[[:xdigit:]]{2}(-[[:xdigit:]]{2})*$} $netif(-physicaladdress)]} {
+                lappend msgs "Invalid h/w address $netif(-physicaladdress)."
+            }
+        }
+
+        foreach opt {
+            -prefixes -dnsservers -anycastaddresses -unicastaddresses -multicastaddresses
+        } {
+            if {[info exists netif($opt)]} {
+                set addrs {}
+                foreach elem $netif($opt) {
+                    lappend addrs [twapi::kl_get $elem -address]
+                    if {$opt eq "-prefixes"} {
+                        if {![string is integer -strict [twapi::kl_get $elem -prefixlength]]} {
+                            lappend msgs "Invalid -prefixlength field."
+                        }
+                    }
+                }
+                if {! [validate_ip_addresses $addrs 6]} {
+                    lappend msgs "Invalid IP addresses '$netif($opt)' for $opt."
+                }
+            }
+        }
+
+        foreach opt {
+            -dhcpenabled
+        } {
+            if {[info exists netif($opt)] &&
+                ! [string is boolean -strict $netif($opt)]} {
+                lappend msgs "Invalid non-boolean value '$netif($opt)' for $opt."
+            }
+        }
+
+        foreach opt {
+            -type -operstatus -ipv6ifindex 
+        } {
+            if {[info exists netif($opt)] &&
+                ! [string is integer -strict $netif($opt)]} {
+                lappend msgs "Invalid non-integer value '$netif($opt)' for $opt."
+            }
+        }
+
+    }
+
+
+    ################################################################
+
+    test get_ip_addresses-1.0 {
+        Verify IP addresses are retrieved
+    } -body {
+        expr {[lsearch [twapi::get_ip_addresses] 127.0.0.1] >= 0}
+    } -result 1
+
+    test get_ip_addresses-1.1 {
+        Verify IP V6 addresses are not retrieved
+    } -body {
+        lsearch [twapi::get_ip_addresses] ::1
+    } -result -1
+
+    ################################################################
+
+    test get_system_ipaddrs-1.0 {
+        Verify IP V4 unicast addresses are retrieved by default
+    } -body {
+        set addrs [twapi::get_system_ipaddrs]
+        list [valid_ip_addresses $addrs] [expr {[lsearch $addrs 127.0.0.1] >= 0}] [lsearch $addrs 224.0.0.1] [lsearch $addrs ff01::1*]
+    } -result {1 1 -1 -1}
+
+    test get_system_ipaddrs-1.1 {
+        Verify IP V6 unicast addresses are retrieved by default
+    } -constraints {
+        ipv6
+    } -body {
+        set addrs [twapi::get_system_ipaddrs]
+        list [valid_ip_addresses $addrs] [expr {[lsearch $addrs 127.0.0.1] >= 0}] [expr {[lsearch $addrs ::1] >= 0}] [lsearch $addrs 224.0.0.1] [lsearch $addrs ff01::1*]
+    } -result {1 1 1 -1 -1}
+
+    test get_system_ipaddrs-2.0 {
+        Get IP addresses for IP V4 only
+    } -body {
+        set addrs [twapi::get_system_ipaddrs -ipversion 4]
+        list [valid_ip_addresses $addrs] [expr {[lsearch $addrs 127.0.0.1] >= 0}] [lsearch $addrs ::1] [lsearch $addrs 224.0.0.1] [lsearch $addrs ff01::1*]
+    } -result {1 1 -1 -1 -1}
+
+    test get_system_ipaddrs-2.1 {
+        Get IP addresses for IP V4 only (inet)
+    } -body {
+        set addrs [twapi::get_system_ipaddrs -ipversion inet]
+        list [valid_ip_addresses $addrs] [expr {[lsearch $addrs 127.0.0.1] >= 0}] [lsearch $addrs ::1] [lsearch $addrs 224.0.0.1] [lsearch $addrs ff01::1*]
+    } -result {1 1 -1 -1 -1}
+
+    test get_system_ipaddrs-3.0 {
+        Get IP addresses for IP V6 only
+    } -body {
+        set addrs [twapi::get_system_ipaddrs -ipversion 6]
+        list [valid_ip_addresses $addrs] [expr {[lsearch $addrs ::1] >= 0}] [lsearch $addrs 127.0.0.1] [lsearch $addrs 224.0.0.1] [lsearch $addrs ff01::1*]
+    } -result {1 1 -1 -1 -1}
+
+    test get_system_ipaddrs-3.1 {
+        Get IP addresses for IP V6 only (inet6)
+    } -body {
+        set addrs [twapi::get_system_ipaddrs -ipversion inet6]
+        list [valid_ip_addresses $addrs] [expr {[lsearch $addrs ::1] >= 0}] [lsearch $addrs 127.0.0.1] [lsearch $addrs 224.0.0.1] [lsearch $addrs ff01::1*]
+    } -result {1 1 -1 -1 -1}
+
+    test get_system_ipaddrs-4.0 {
+        Get IP addresses of a specific type (unicast, multicast, anycast)
+    } -constraints {
+        TBD
+    } -body {
+    } -result ""
+
+    ################################################################
+
+    test get_netif_indices-1.0 {
+        Get network interface indices
+    } -body {
+        set indices [twapi::get_netif_indices]
+        set bad_indices [list ]
+        foreach i $indices {
+            if {! [string is integer $i]} {
+                lappend bad_indices $i
+            }
+        }
+        set bad_indices
+    } -result ""
+
+    ################################################################
+
+    test get_netif6_indices-1.0 {
+        Get network interface indices
+    } -constraints {
+        ipv6
+    } -body {
+        set indices [twapi::get_netif6_indices]
+        set bad_indices [list ]
+        foreach i $indices {
+            if {! [string is integer $i]} {
+                lappend bad_indices $i
+            }
+        }
+        set bad_indices
+    } -result ""
+
+    ################################################################
+
+    test get_network_info-1.0 {
+        Get all network information
+    } -constraints {
+        nt
+    } -body {
+        if {[twapi::min_os_version 5]} {
+            array unset netinfo
+            array set netinfo [twapi::get_network_info -all]
+            verify_kl_fields [array get netinfo] {
+                -arpproxyenabled -dhcpscopeid -dnsenabled -dnsservers
+                -domain -hostname -interfaces -ipaddresses -routingenabled
+            }
+            expr {
+                  [string is boolean $netinfo(-arpproxyenabled)] &&
+                  [string is boolean $netinfo(-dnsenabled)] &&
+                  [validate_ip_addresses $netinfo(-dnsservers)] &&
+                  [validate_netif_indices $netinfo(-interfaces)] &&
+                  [validate_ip_addresses $netinfo(-ipaddresses)] &&
+                  [string is boolean $netinfo(-routingenabled)]
+              }
+        } else {
+            # NT 4 - command should throw an error
+            set result [catch {twapi::get_network_info -all} msg]
+        }
+    } -result 1
+
+    ################################################################
+
+    test ipaddr_to_hwaddr-1.0 {
+        Get the hardware address for an IP address
+    } -body {
+        set dest [twapi::kl_get [twapi::get_route] -nexthop]
+        # Try to make sure ARP table populated
+        catch { close [socket $dest 1234] }
+        twapi::ipaddr_to_hwaddr $dest
+    } -result {^([[:xdigit:]]{2}-){5}[[:xdigit:]]{2}$} -match regexp
+
+    test ipaddr_to_hwaddr-1.1 {
+        Get the hardware address for an IP address in a variable
+    } -body {
+        set dest [twapi::kl_get [twapi::get_route] -nexthop]
+        # Try to make sure ARP table populated
+        catch { close [socket $dest 1234] }
+        list [twapi::ipaddr_to_hwaddr $dest hwaddr] $hwaddr
+    } -result {^1 ([[:xdigit:]]{2}-){5}[[:xdigit:]]{2}$} -match regexp
+
+    test ipaddr_to_hwaddr-2.0 {
+        Get the hardware address for a non-existing IP address
+    } -body {
+        twapi::ipaddr_to_hwaddr 127.0.0.2
+    } -result * -match glob -returnCodes error
+
+    test ipaddr_to_hwaddr-2.1 {
+        Get the hardware address for a loopback
+    } -body {
+        twapi::ipaddr_to_hwaddr 127.0.0.1
+    } -result * -match glob -returnCodes error
+
+    test ipaddr_to_hwaddr-2.2 {
+        Get the hardware address for a non-existing IP address
+    } -body {
+        set var unchanged
+        list [twapi::ipaddr_to_hwaddr 127.0.0.2 var] $var
+    } -result {0 unchanged}
+
+
+    ################################################################
+
+    test hwaddr_to_ipaddr-1.0 {
+        Get the IP address for an h/w address
+    } -body {
+        set dest [twapi::kl_get [twapi::get_route] -nexthop]
+        # Try to make sure ARP table populated
+        catch { close [socket $dest 1234] }
+        set hwaddr [twapi::ipaddr_to_hwaddr $dest]
+        string equal $dest [twapi::hwaddr_to_ipaddr $hwaddr]
+    } -result 1
+
+    test hwaddr_to_ipaddr-1.1 {
+        Get the IP address for an h/w address in a variable
+    } -body {
+        set dest [twapi::kl_get [twapi::get_route] -nexthop]
+        # Try to make sure ARP table populated
+        catch { close [socket $dest 1234] }
+        set hwaddr [twapi::ipaddr_to_hwaddr $dest]
+        list [twapi::hwaddr_to_ipaddr $hwaddr ipaddr] [string equal $dest $ipaddr]
+    } -result {1 1}
+    
+    test hwaddr_to_ipaddr-2.0 {
+        Get the IP address for a non-existing h/w address
+    } -body {
+        twapi::hwaddr_to_ipaddr 0a-0a-0a-0a-0a=0a
+    } -result * -match glob -returnCodes error
+
+    test hwaddr_to_ipaddr-2.1 {
+        Get the IP address for a non-existing h/w address using a variable
+    } -body {
+        set var unchanged
+        list [twapi::hwaddr_to_ipaddr 0a-0a-0a-0a-0a=0a var] $var
+    } -result {0 unchanged}
+
+
+    ################################################################
+    
+    test get_route-1.0 {
+        Get the default route
+    } -body {
+        validate_route [twapi::get_route]
+    } -result ""
+
+    test get_route-1.1 {
+        Get the route to a specific address
+    } -body {
+        validate_route [twapi::get_route -dest 8.8.8.8]
+    } -result ""
+
+    test get_route-1.2 {
+        Get the route to a specific address from a specific source address
+    } -body {
+        validate_route [twapi::get_route -dest 8.8.8.8 -source [our_ipaddr]]
+    } -result ""
+
+
+    ################################################################
+
+    test get_routing_table-1.0 {
+        Get the routing table
+    } -body {
+        set routes [twapi::get_routing_table]
+        set msg ""
+        if {[llength $routes] == 0} {
+            set msg "No routes found."
+        } else {
+            foreach route $routes {
+                append msg [validate_route $route]
+            }
+        }
+        set msg
+    } -result ""
+
+    ################################################################
+
+    test get_netif_count-1.0 {
+        Get network interface count
+    } -body {
+        expr {[twapi::get_netif_count] ==
+              ([llength [twapi::get_netif_indices]] + [llength [twapi::get_netif6_indices]])}
+    } -result 1
+
+    ################################################################
+
+    test get_netif6_count-1.0 {
+        Get network interface count IPv6
+    } -constraints {
+        ipv6
+    } -body {
+        expr {[twapi::get_netif6_count] > 0}
+    } -result 1
+
+
+    ################################################################
+
+    test get_outgoing_interface-1.0 {
+        Get the outgoing interface for a connection
+    } -body {
+        expr {
+              [lsearch -exact [twapi::get_netif_indices] [twapi::get_outgoing_interface 8.8.8.8]] >= 0
+          }
+    } -result 1
+
+    ################################################################
+
+    set testnum 1
+    foreach {field validation} {
+        -arpproxyenabled "string is boolean"
+        -dhcpscopeid     "string match *"
+        -dnsenabled      "string is boolean"
+        -dnsservers      "validate_ip_addresses"
+        -domain          "string match *"
+        -hostname        "string match *"
+        -interfaces      "validate_netif_indices"
+        -ipaddresses     "validate_ip_addresses"
+        -routingenabled  "string is boolean"
+    } {
+        test get_network_info-[incr testnum].0 "Verify get_network_info $field" -constraints {
+            nt win2k
+        } -body "
+            set result \[twapi::get_network_info $field \]
+            verify_kl_fields \$result [list $field]
+            eval \$validation \[list \[lindex \$result 1\] \]
+        " -result 1
+    }
+
+    ################################################################
+
+    test get_netif_info-1.0 {
+    } -body {
+        set msgs ""
+        foreach ind [twapi::get_netif_indices] {
+            set netif [twapi::get_netif_info $ind -all]
+            set fields {
+                -physicaladdress -innonunicastpkts -inunknownprotocols -inerrors -adminstatus -outdiscards -inbytes -laststatuschange -outbytes -ifindex -outqlen -inunicastpkts -outunicastpkts -autoconfigenabled -autoconfigactive -indiscards -description -outnonunicastpkts -outerrors -mtu -dnsservers -ipaddresses -ifname -speed -reassemblysize -type -operstatus
+            }
+            if {[twapi::kl_get $netif -type] != 24} {
+                lappend fields -adapterdescription -defaultgateway -dhcpleaseend -secondarywins -dhcpenabled -adaptername -primarywins -havewins -dhcpserver -dhcpleasestart -adapterindex
+            }
+            verify_kl_fields $netif $fields
+            validate_netif $netif msgs
+        }
+        join $msgs \n
+    } -result ""
+
+    ################################################################
+
+    test get_netif6_info-1.0 {
+        Get IPv6 interface info
+    } -body {
+        set msgs ""
+        foreach ind [twapi::get_netif6_indices] {
+            set netif [twapi::get_netif6_info $ind -all]
+            set fields {
+                -adaptername
+                -anycastaddresses
+                -description
+                -dhcpenabled
+                -dnsservers
+                -dnssuffix
+                -friendlyname
+                -ipv6ifindex
+                -multicastaddresses
+                -operstatus
+                -physicaladdress
+                -prefixes
+                -type
+                -unicastaddresses
+                -zoneindices
+            }                
+            verify_kl_fields $netif $fields
+            validate_netif6 $netif msgs
+        }
+        join $msgs \n
+    } -result ""
+
+    test get_netif6_info-2.0 {
+        Get IPv6 interface info using adapter name
+    } -body {
+        set ind [lindex [twapi::get_netif6_indices] 0]
+        set netif_name [twapi::kl_get [twapi::get_netif6_info $ind -adaptername] -adaptername]
+        string equal [twapi::get_netif6_info $ind -friendlyname -type] [twapi::get_netif6_info $netif_name -friendlyname -type]
+    } -result 1
+
+    test get_netif6_info-3.0 {
+        Get IPv6 interface info using friendly name
+    } -body {
+        set ind [lindex [twapi::get_netif6_indices] 0]
+        set netif_name [twapi::kl_get [twapi::get_netif6_info $ind -friendlyname] -friendlyname]
+        string equal [twapi::get_netif6_info $ind -adaptername -type] [twapi::get_netif6_info $netif_name -adaptername -type]
+    } -result 1
+
+
+
+    ################################################################
+
+    test hostname_to_address-1.0 {
+        Map host name to address
+    } -constraints {
+        nt
+    } -body {
+        set ipaddrs [twapi::hostname_to_address [resolvable_hostname]]
+        expr {[llength $ipaddrs] && [validate_ip_addresses $ipaddrs]}
+    } -result 1
+
+    ###
+
+    test hostname_to_address-1.1 {
+        Map host name to address (no addresses)
+    } -constraints {
+        nt
+    } -body {
+        llength [twapi::hostname_to_address xadf.xtrt.xsfdg.com]
+    } -result 0
+
+    ###
+
+    test hostname_to_address-2.0 {
+        Map host name to address asynchronous (success)
+    } -constraints {
+        nt
+    } -body {
+        set ::hostname_to_address_result [list ]
+        twapi::hostname_to_address [resolvable_hostname] -async {lappend ::hostname_to_address_result}
+        vwait ::hostname_to_address_result
+        foreach {hostname status ipaddrs} $::hostname_to_address_result break
+        expr {($hostname eq "[resolvable_hostname]") && ($status eq "success") && [llength $ipaddrs] && [validate_ip_addresses $ipaddrs]}
+    } -result 1
+
+    ###
+
+    test hostname_to_address-2.1 {
+        Map host name to address asynchronous (no addresses)
+    } -constraints {
+        nt
+    } -body {
+        set ::hostname_to_address_result [list ]
+        twapi::hostname_to_address xno.xsuch.xname.xcom -async {lappend ::hostname_to_address_result}
+        vwait ::hostname_to_address_result
+        foreach {hostname status ipaddrs} $::hostname_to_address_result break
+        expr {
+	      $hostname eq "xno.xsuch.xname.xcom" &&
+	      ((($status eq "success") && [llength $ipaddrs] == 0) ||
+	       $status eq "fail")
+	   }
+    } -result 1
+
+    ################################################################
+
+    test resolve_hostname-1.0 {
+        Map host name to address
+    } -body {
+        set ipaddrs [twapi::resolve_hostname [resolvable_hostname]]
+        list [expr {[llength $ipaddrs] > 0}] [validate_ip_addresses $ipaddrs]
+    } -result {1 1}
+
+    ###
+
+    test resolve_hostname-1.1 {
+        Map host name to address (no addresses)
+    } -body {
+        llength [twapi::resolve_hostname xadf.xtrt.xsfdg.com]
+    } -result 0
+
+    ###
+
+    test resolve_hostname-2.0 {
+        Map host name to address asynchronous (success)
+    } -body {
+        set ::resolve_hostname_result [list ]
+        twapi::resolve_hostname [resolvable_hostname] -async {lappend ::resolve_hostname_result}
+        vwait ::resolve_hostname_result
+        foreach {hostname status ipaddrs} $::resolve_hostname_result break
+        expr {($hostname eq "[resolvable_hostname]") && ($status eq "success") && [llength $ipaddrs] && [validate_ip_addresses $ipaddrs]}
+    } -result 1
+
+    ###
+
+    test resolve_hostname-2.1 {
+        Map host name to address asynchronous (no addresses)
+    } -body {
+        set ::resolve_hostname_result [list ]
+        twapi::resolve_hostname xno.xsuch.xname.xcom -async {lappend ::resolve_hostname_result}
+        vwait ::resolve_hostname_result
+        foreach {hostname status ipaddrs} $::resolve_hostname_result break
+        expr {
+	      $hostname eq "xno.xsuch.xname.xcom" &&
+	      ((($status eq "success") && [llength $ipaddrs] == 0) ||
+	       $status eq "fail")
+          }
+    } -result 1
+
+    test resolve_hostname-3.0 {
+        Map host name to IPv4 address
+    } -body {
+        set ipaddrs [twapi::resolve_hostname [resolvable_hostname] -ipversion 4]
+        list [expr {[llength $ipaddrs] > 0}] [validate_ip_addresses $ipaddrs 4]
+    } -result {1 1}
+    
+    test resolve_hostname-3.1 {
+        Map host name to IPv4 address (inet)
+    } -body {
+        set ipaddrs [twapi::resolve_hostname [resolvable_hostname] -ipversion inet]
+        list [expr {[llength $ipaddrs] > 0}] [validate_ip_addresses $ipaddrs 4]
+    } -result {1 1}
+    
+    test resolve_hostname-3.2 {
+        Map host name to IPv4 address asynchronous
+    } -body {
+        set ::resolve_hostname_result [list ]
+        twapi::resolve_hostname [resolvable_hostname] -async {lappend ::resolve_hostname_result} -ipversion 4
+        vwait ::resolve_hostname_result
+        foreach {hostname status ipaddrs} $::resolve_hostname_result break
+        expr {($hostname eq "[resolvable_hostname]") && ($status eq "success") && [llength $ipaddrs] && [validate_ip_addresses $ipaddrs 4]}
+    } -result 1
+
+    test resolve_hostname-3.3 {
+        Map host name to IPv4 address asynchronous (inet)
+    } -body {
+        set ::resolve_hostname_result [list ]
+        twapi::resolve_hostname [resolvable_hostname] -async {lappend ::resolve_hostname_result} -ipversion inet
+        vwait ::resolve_hostname_result
+        foreach {hostname status ipaddrs} $::resolve_hostname_result break
+        expr {($hostname eq "[resolvable_hostname]") && ($status eq "success") && [llength $ipaddrs] && [validate_ip_addresses $ipaddrs 4]}
+    } -result 1
+
+    test resolve_hostname-4.0 {
+        Map host name to IPv6 address
+    } -body {
+        set ipaddrs [twapi::resolve_hostname [resolvable_hostname] -ipversion 6]
+        list [expr {[llength $ipaddrs] > 0}] [validate_ip_addresses $ipaddrs 6]
+    } -result {1 1}
+    
+    test resolve_hostname-4.1 {
+        Map host name to IPv4 address (inet6)
+    } -body {
+        set ipaddrs [twapi::resolve_hostname [resolvable_hostname] -ipversion inet6]
+        list [expr {[llength $ipaddrs] > 0}] [validate_ip_addresses $ipaddrs 6]
+    } -result {1 1}
+    
+    test resolve_hostname-4.2 {
+        Map host name to IPv6 address asynchronous
+    } -body {
+        set ::resolve_hostname_result [list ]
+        twapi::resolve_hostname [resolvable_hostname] -async {lappend ::resolve_hostname_result} -ipversion 6
+        vwait ::resolve_hostname_result
+        foreach {hostname status ipaddrs} $::resolve_hostname_result break
+        expr {($hostname eq "[resolvable_hostname]") && ($status eq "success") && [llength $ipaddrs] && [validate_ip_addresses $ipaddrs 6]}
+    } -result 1
+
+    test resolve_hostname-4.3 {
+        Map host name to IPv6 address asynchronous (inet6)
+    } -body {
+        set ::resolve_hostname_result [list ]
+        twapi::resolve_hostname [resolvable_hostname] -async {lappend ::resolve_hostname_result} -ipversion inet6
+        vwait ::resolve_hostname_result
+        foreach {hostname status ipaddrs} $::resolve_hostname_result break
+        expr {($hostname eq "[resolvable_hostname]") && ($status eq "success") && [llength $ipaddrs] && [validate_ip_addresses $ipaddrs 6]}
+    } -result 1
+
+    ################################################################
+
+    test address_to_hostname-1.0 {
+        Map address to host name
+    } -constraints {
+        nt
+    } -body {
+        twapi::address_to_hostname [resolvable_address]
+    } -match glob -result *[resolvable_address_domain]
+
+    test address_to_hostname-1.1 {
+        Map address to host name (no names)
+    } -constraints {
+        nt
+    } -body {
+        llength [twapi::address_to_hostname 127.0.0.2]
+    } -result 0
+
+    test address_to_hostname-1.2 {
+        Map 127.0.0.1
+    } -constraints {
+        nt
+    } -body {
+        set name [twapi::address_to_hostname 127.0.0.1]
+        expr {[string equal -nocase $name localhost] ||
+              [string equal -nocase $name $::env(COMPUTERNAME)]}
+    } -result 1
+
+    test address_to_hostname-2.0 {
+        Map address to host name asynchronous (success)
+    } -constraints {
+        nt
+    } -body {
+        set ::address_to_hostname_result [list ]
+        twapi::address_to_hostname [resolvable_address] -async {lappend ::address_to_hostname_result}
+        vwait ::address_to_hostname_result
+        foreach {addr status hostname} $::address_to_hostname_result break
+        expr {($addr eq [resolvable_address]) && ($status eq "success") && [string match *[resolvable_address_domain] $hostname]}
+    } -result 1
+    
+    test address_to_hostname-2.1 {
+        Map address to host name asynchronous (no addresses)
+    } -constraints {
+        nt
+    } -body {
+        set ::address_to_hostname_result [list ]
+        twapi::address_to_hostname 127.0.0.2 -async {lappend ::address_to_hostname_result}
+        vwait ::address_to_hostname_result
+        foreach {addr status hostname} $::address_to_hostname_result break
+        expr {($addr eq "127.0.0.2") && ($status eq "success") && $hostname eq ""}
+    } -result 1
+
+    ################################################################
+
+    test resolve_address-1.0 {
+        Map IPv4 address to host name
+    } -body {
+        twapi::resolve_address [resolvable_address]
+    } -match glob -result *[resolvable_address_domain]
+
+    test resolve_address-1.1 {
+        Map IPv6 address to host name
+    } -constraints {
+        ipv6
+    } -body {
+        string match -nocase *[resolvable_address6_domain] [twapi::resolve_address [resolvable_address6]]
+    } -result 1 
+
+    test resolve_address-2.0 {
+        Map Ipv4 address to host name (no names)
+    } -body {
+        llength [twapi::resolve_address 127.0.0.2]
+    } -result 0
+
+    test resolve_address-2.1 {
+        Map IPv6 address to host name (no names)
+    } -constraints {
+        ipv6
+    } -body {
+        llength [twapi::resolve_address ::2]
+    } -result 0
+
+    test resolve_address-3.0 {
+        Map 127.0.0.1
+    } -body {
+        set name [twapi::resolve_address 127.0.0.1]
+        expr {[string equal -nocase $name localhost] ||
+              [string equal -nocase $name $::env(COMPUTERNAME)]}
+    } -result 1
+
+    test resolve_address-3.2 {
+        Map ::1
+    } -constraints {
+        ipv6
+    } -body {
+        set name [twapi::resolve_address ::1]
+        expr {[string equal -nocase $name localhost] ||
+              [string equal -nocase $name $::env(COMPUTERNAME)]}
+    } -result 1
+
+    test resolve_address-4.0 {
+        Map IPv4 address to host name asynchronous (success)
+    } -body {
+        set ::resolve_address_result [list ]
+        twapi::resolve_address [resolvable_address] -async {lappend ::resolve_address_result}
+        vwait ::resolve_address_result
+        foreach {addr status hostname} $::resolve_address_result break
+        expr {($addr eq [resolvable_address]) && ($status eq "success") && [string match -nocase *[resolvable_address_domain] $hostname]}
+    } -result 1
+
+    test resolve_address-4.1 {
+        Map IPv6 address to host name asynchronous (success)
+    } -constraints {
+        ipv6
+    } -body {
+        set ::resolve_address_result [list ]
+        twapi::resolve_address [resolvable_address6] -async {lappend ::resolve_address_result}
+        vwait ::resolve_address_result
+        foreach {addr status hostname} $::resolve_address_result break
+        list [expr {$addr eq [resolvable_address6]}]  $status [string match -nocase *[resolvable_address6_domain] $hostname]
+    } -result {1 success 1}
+
+    test resolve_address-5.0 {
+        Map address to host name asynchronous (no addresses)
+    } -body {
+        set ::resolve_address_result [list ]
+        twapi::resolve_address 127.0.0.2 -async {lappend ::resolve_address_result}
+        vwait ::resolve_address_result
+        foreach {addr status hostname} $::resolve_address_result break
+        expr {($addr eq "127.0.0.2") && ($status eq "success") && $hostname eq ""}
+    } -result 1
+
+    test resolve_address-5.0 {
+        Map address to host name asynchronous (no addresses)
+    } -constraints {
+        ipv6
+    } -body {
+        set ::resolve_address_result [list ]
+        twapi::resolve_address ::2 -async {lappend ::resolve_address_result}
+        vwait ::resolve_address_result
+        foreach {addr status hostname} $::resolve_address_result break
+        expr {($addr eq "::2") && ($status eq "success") && $hostname eq ""}
+    } -result 1
+
+    ################################################################
+
+    test port_to_service-1.0 {
+        Map port number to service name
+    } -constraints {
+        nt
+    } -body {
+        twapi::port_to_service 80
+    } -result http
+
+    ###
+
+    test port_to_service-1.1 {
+        Map port number to service name (non-existent)
+    } -constraints {
+        nt
+    } -body {
+        twapi::port_to_service 1234
+    } -result ""
+
+    ################################################################
+
+    test service_to_port-1.0 {
+        Map service to port number
+    } -constraints {
+        nt
+    } -body {
+        twapi::service_to_port http
+    } -result 80
+
+    ###
+
+    test service_to_port-1.1 {
+        Map service to port (non-existent)
+    } -constraints {
+        nt
+    } -body {
+        twapi::service_to_port httpx
+    } -result ""
+
+    ###
+
+    test service_to_port-1.2 {
+        Map service to port (numeric)
+    } -constraints {
+        nt
+    } -body {
+        twapi::service_to_port 80
+    } -result 80
+
+    ################################################################
+
+    test get_tcp_connections-1.0 {
+        Get TCP connections
+    } -body {
+        validate_connections [twapi::get_tcp_connections -all] 1
+    } -result ""
+
+    test get_tcp_connections-1.1 {
+        Get TCP connections for IPv6 - check for crash
+    } -constraints {
+        tclipv6
+    } -setup {
+        patience "get_tcp_connections-1.1"
+    } -body {
+        # IPHLPAPI has a bug when retrieving IPv6 connection info
+        # for level > 5 (ie. module info being retrieved)
+        # Check TWAPI works around it
+        set server_socket [socket -server [list set ::connection_establised 1] 9342]
+        unset -nocomplain client_sockets
+        set msgs {}
+        # Note XP has limit on number of connects so we only try up to 100
+        # That is more than sufficient since to reproduce the bug, a single
+        # IPv6 connection was enough
+        for {set i 0} {$i < 100} {incr i} {
+            lappend client_sockets [socket ::1 9342]
+            # Verify we do not crash
+            lappend msgs [validate_connections [twapi::get_tcp_connections] $i]
+            twapi::_get_all_tcp 0 8 0; # Same thing, raw call
+            lappend msgs [validate_connections [twapi::get_tcp_connections -ipversion 6] 1]
+            twapi::_get_all_tcp 0 8 23; # Same thing, raw call
+        }            
+        join $msgs ""
+    } -cleanup {
+        foreach client_socket $client_sockets {
+            close $client_socket
+        }
+        close $server_socket
+    } -result ""
+
+
+    test get_tcp_connections-2.0 {
+        Get TCP connections -modulepath
+    } -setup {
+        # Make sure at least one connection established
+        set server_socket [socket -server [list set ::connection_establised 1] 9341]
+        set client_socket [socket 127.0.0.1 9341]
+    } -body {
+        array set aconns [lindex [twapi::get_tcp_connections -all -matchlocalport 9341] 0]
+        set aconns(-modulepath)
+    } -cleanup {
+        close $client_socket
+        close $server_socket
+    } -result [info nameofexecutable] -match path
+
+    test get_tcp_connections-2.1 {
+        Get TCP connections -modulename
+    } -setup {
+        # Make sure at least one connection established
+        set server_socket [socket -server [list set ::connection_establised 1] 9341]
+        set client_socket [socket 127.0.0.1 9341]
+    } -body {
+        array set aconns [lindex [twapi::get_tcp_connections -all -matchlocalport 9341] 0]
+        set aconns(-modulename)
+    } -cleanup {
+        close $client_socket
+        close $server_socket
+    } -result [file tail [info nameofexecutable]] -match path
+
+    set testnum 1
+    foreach opt $get_tcp_connections_fields {
+        test get_tcp_connections-2.[incr testnum] "get_tcp_connections $opt" -body "validate_connections \[twapi::get_tcp_connections $opt\] 1 $opt" -result ""}
+
+    test get_tcp_connections-3.0 {
+        get_tcp_connections -matchstate listen
+    } -body {
+        validate_connections [twapi::get_tcp_connections -all -matchstate listen] 1 $get_tcp_connections_fields [list -state listen]
+    } -result ""
+
+    test get_tcp_connections-3.1 {
+        get_tcp_connections -matchstate estab
+    } -setup {
+        # Make sure at least one connection established
+        set server_socket [socket -server [list set ::connection_establised 1] 9341]
+        set client_socket [socket 127.0.0.1 9341]
+    } -body {
+        validate_connections [twapi::get_tcp_connections -all -matchstate estab] 1 $get_tcp_connections_fields [list -state estab]
+    } -cleanup {
+        close $client_socket
+        close $server_socket
+    } -result ""
+
+    test get_tcp_connections-3.2 {
+        get_tcp_connections -matchstate close_wait
+    } -setup {
+        # Make sure at least one connection established
+        set server_socket [socket -server [list set ::connection_establised 1] 9342]
+        set client_socket [socket 127.0.0.1 9342]
+    } -body {
+        close $client_socket;   # Should put in close_wait state
+        validate_connections [twapi::get_tcp_connections -all -matchstate close_wait] 1 $get_tcp_connections_fields [list -state close_wait]
+    } -cleanup {
+        close $server_socket
+    } -result ""
+
+    # For the following, it's hard to guarantee connection state, so min
+    # value for number of connections is 0
+    set testnum 2
+    foreach state {closed syn_sent syn_rcvd fin_wait1 fin_wait2 closing last_ack time_wait delete_tcb} {
+        test get_tcp_connections-3.[incr testnum] "get_tcp_connections -all -matchstate $state" -body "validate_connections \[twapi::get_tcp_connections -all -matchstate $state\] 0 [list $get_tcp_connections_fields] {-state $state}" -result ""}
+
+    set testnum 3
+    foreach {matchopt opt val} [list \
+                                    -matchlocaladdr -localaddr 127.0.0.1 \
+                                    -matchremoteaddr -remoteaddr 127.0.0.1 \
+                                    -matchlocalport -localport 9341 \
+                                    -matchremoteport -remoteport 9341 \
+                                    -matchpid -pid  [pid]] {
+        test get_tcp_connections-[incr testnum].0 \
+            "get_tcp_connections -all $matchopt $val" \
+            -setup {
+                set server_socket [socket -server [list lappend ::connection_establised 1] 9341]
+                set client_socket [socket 127.0.0.1 9341]
+            } -body "validate_connections \[twapi::get_tcp_connections -all $matchopt $val\] 1 [list $get_tcp_connections_fields] {$opt $val}" \
+            -cleanup {
+                close $client_socket
+                close $server_socket
+            } -result ""
+    }
+
+    foreach {matchopt opt val} [list \
+                                    -matchlocaladdr -localaddr ::1 \
+                                    -matchremoteaddr -remoteaddr ::1 \
+                                    -matchlocalport -localport 9342 \
+                                    -matchremoteport -remoteport 9342 \
+                                    -matchpid -pid  [pid]] {
+        test get_tcp_connections-[incr testnum].0 \
+            "get_tcp_connections -all $matchopt $val" \
+            -constraints {tclipv6} \
+            -setup {
+                set server_socket [socket -server [list lappend ::connection_establised 1] 9342]
+                set client_socket [socket ::1 9342]
+            } -body "validate_connections \[twapi::get_tcp_connections -all -ipversion 6 $matchopt $val\] 1 [list $get_tcp_connections_fields] {$opt $val}" \
+            -cleanup {
+                close $client_socket
+                close $server_socket
+            } -result ""
+    }
+
+
+    ################################################################
+
+    test get_udp_connections-1.0 {
+        Get UDP connections
+    } -body {
+        validate_connections [twapi::get_udp_connections -all] 1 $get_udp_connections_fields
+    } -result ""
+
+    test get_udp_connections-2.0 {
+        Get UDP connections -modulepath
+    } -body {
+        array set aconns [lindex [twapi::get_udp_connections -all -matchlocalport 1900] 0]
+        file dirname [set aconns(-modulepath)]
+    } -result [file join $::env(WINDIR) system32] -match path
+
+    test get_udp_connections-2.1 {
+        Get UDP connections -modulename
+    } -body {
+        array set aconns [lindex [twapi::get_udp_connections -all -matchlocalport 1900] 0]
+        file exists [file join $::env(WINDIR) system32 $aconns(-modulename)]
+    } -result 1
+
+    set testnum 1
+    foreach opt $get_udp_connections_fields {
+        test get_udp_connections-2.[incr testnum] "get_udp_connections $opt" -body "validate_connections \[twapi::get_udp_connections $opt\] 1 $opt" -result ""}
+
+    set testnum 2
+    foreach {matchopt opt val} [list \
+                                    -matchlocaladdr -localaddr 127.0.0.1 \
+                                    -matchlocalport -localport 1900 \
+                                    -matchpid -pid  [lindex [lindex [twapi::get_udp_connections -pid -matchlocalport 123] 0] 1]] {
+        test get_udp_connections-[incr testnum].0 {
+            get_udp_connections -all $matchopt $val
+        } -body "validate_connections \[twapi::get_udp_connections -all $matchopt $val\] 1 [list $get_udp_connections_fields] {$opt $val}" \
+            -result ""
+    }
+
+    test get_udp_connections-99.0 {
+        TBD - add tests related to IPv6
+    } -constraints {
+        ipv6 TBD
+    } -body {
+    } -result ""
+
+    ################################################################
+
+    test terminate_tcp_connections-1.0 {
+        Terminate TCP connections for a specific process (-matchpid)
+    } -setup {
+        set nconns [llength [twapi::get_tcp_connections -pid]]
+        set server_socket [socket -server [list lappend ::connection_establised 1] 9341]
+        set client_socket [socket 127.0.0.1 9341]
+        set client_socket2 [socket 127.0.0.1 9341]
+    } -body {
+        # Assumes no other extraneous connections are created on the system
+        twapi::terminate_tcp_connections -matchpid [pid]
+        set conns [twapi::get_tcp_connections -pid]
+        # Both active connections should be gone (server listen socket
+        # will still be present). This also verifies somewhat that
+        # we did not kill connections from other processes.
+        list [expr {[llength $conns]-$nconns}] \
+            [twapi::get_tcp_connections -pid -matchpid [pid]]
+    } -cleanup {
+        close $client_socket
+        close $client_socket2
+        close $server_socket
+    } -result [list 1 [list [list -pid [pid]]]]
+
+    test terminate_tcp_connections-2.0 {
+        Terminate TCP connections for a remote port (-matchremoteport)
+    } -setup {
+        set nconns [llength [twapi::get_tcp_connections -pid]]
+        set server_socket [socket -server [list lappend ::connection_establised 1] 9341]
+        set server_socket2 [socket -server [list lappend ::connection_establised 1] 9342]
+        set client_socket [socket 127.0.0.1 9341]
+        set client_socket2 [socket 127.0.0.1 9342]
+    } -body {
+        # Assumes no other extraneous connections are created on the system
+        twapi::terminate_tcp_connections -matchremoteport 9342
+        set conns [twapi::get_tcp_connections -pid]
+        # One active connections should be gone (both server listen socket
+        # will still be present). This also verifies somewhat that
+        # we did not kill connections from other processes.
+        list [expr {[llength $conns]-$nconns}] \
+            [twapi::get_tcp_connections -pid -matchpid [pid]]
+    } -cleanup {
+        close $server_socket
+        close $server_socket2
+        close $client_socket
+        close $client_socket2
+    } -result [list 4 [list [list -pid [pid]] [list -pid [pid]] [list -pid [pid]] [list -pid [pid]]] ]
+
+    test terminate_tcp_connections-3.0 {
+        Terminate TCP connections for a remote address (-matchremoteaddress)
+    } -setup {
+        foreach {addrA addrB} [twapi::get_ip_addresses] break
+        set nconns [llength [twapi::get_tcp_connections -pid]]
+        set server_socket [socket -server [list lappend ::connection_establised 1] -myaddr $addrA 9341]
+        set server_socket2 [socket -server [list lappend ::connection_establised 1] -myaddr $addrB 9342]
+        set client_socket [socket $addrA 9341]
+        set client_socket2 [socket $addrB 9342]
+    } -body {
+        # Assumes no other extraneous connections are created on the system
+        twapi::terminate_tcp_connections -matchremoteaddr $addrA
+        set conns [twapi::get_tcp_connections -pid]
+        # One active connections should be gone (both server listen socket
+        # will still be present). This also verifies somewhat that
+        # we did not kill connections from other processes.
+        list [expr {[llength $conns]-$nconns}] \
+            [twapi::get_tcp_connections -pid -matchpid [pid]]
+    } -cleanup {
+        close $server_socket
+        close $server_socket2
+        close $client_socket
+        close $client_socket2
+    } -result [list 4 [list [list -pid [pid]] [list -pid [pid]] [list -pid [pid]] [list -pid [pid]]] ]
+
+    test terminate_tcp_connections-4.0 {
+        Terminate TCP connections for a local address (-matchlocaladdress)
+    } -setup {
+        foreach {addrA addrB} [twapi::get_ip_addresses] break
+        set nconns [llength [twapi::get_tcp_connections -pid]]
+        set server_socket [socket -server [list lappend ::connection_establised 1] -myaddr $addrA 9341]
+        set server_socket2 [socket -server [list lappend ::connection_establised 1] -myaddr $addrB 9342]
+        set client_socket [socket $addrA 9341]
+        set client_socket2 [socket $addrB 9342]
+    } -body {
+        # We specify -matchpid else other connections on system are torn down
+        twapi::terminate_tcp_connections -matchlocaladdr $addrA -matchpid [pid]
+        set conns [twapi::get_tcp_connections -pid]
+        # One active connections should be gone (both server listen socket
+        # will still be present). This also verifies somewhat that
+        # we did not kill connections from other processes.
+        list [expr {[llength $conns]-$nconns}] \
+            [twapi::get_tcp_connections -pid -matchpid [pid]]
+    } -cleanup {
+        close $server_socket
+        close $server_socket2
+        close $client_socket
+        close $client_socket2
+    } -result [list 4 [list [list -pid [pid]] [list -pid [pid]] [list -pid [pid]] [list -pid [pid]]] ]
+
+    ################################################################
+
+    test get_arp_table-1.0 {
+        Get the ARP table
+    } -body {
+        set msgs ""
+        foreach arp [twapi::get_arp_table] {
+            set msgs [concat $msgs [validate_arp_entry $arp]]
+        }
+        join $msgs \n
+    } -result ""
+
+    test get_arp_table-1.1 {
+        Get the ARP table for an interface
+    } -body {
+        set msgs ""
+        foreach netif [twapi::get_netif_indices] {
+            foreach arp [twapi::get_arp_table -ifindex $netif] {
+                set msgs [concat $msgs [validate_arp_entry $arp]]
+                if {[lindex $arp 0] != $netif} {
+                    lappend msgs "Netif index [lindex $arp 0] is not $netif"
+                }
+            }
+        }
+        join $msgs \n
+    } -result ""
+
+    test get_arp_table-1.2 {
+        Get sorted ARP table 
+    } -body {
+        set msgs ""
+        set last 0
+	set last_ip_str ""
+	set last_adapter_index 0
+        foreach arp [twapi::get_arp_table -sort] {
+            set msgs [concat $msgs [validate_arp_entry $arp]]
+            set ipaddr 0
+	    set adapter_index [lindex $arp 0]
+	    set ip_str [lindex $arp 2]
+            foreach part [split $ip_str .] {
+                set ipaddr [expr {(256 * $ipaddr) + $part}]
+            }
+            if {$ipaddr < $last && $adapter_index <= $last_adapter_index} {
+                lappend msgs "IP addr not sorted ('$ipaddr/$ip_str' < '$last/$last_ip_str')."
+            }
+            set last $ipaddr
+	    set last_ip_str $ip_str
+	    set last_adapter_index $adapter_index
+        }
+        join $msgs \n
+    } -result ""
+
+    test get_arp_table-1.3 {
+        Get the ARP table for an interface
+    } -body {
+        set msgs ""
+        foreach arp [twapi::get_arp_table -validonly] {
+            set msgs [concat $msgs [validate_arp_entry $arp]]
+            if {[lindex $arp 3] eq "invalid"} {
+                lappend msgs "Entry $arp is not valid"
+            }
+        }
+        join $msgs \n
+    } -result ""
+
+    ################################################################
+
+    test flush_arp_tables-1.0 {
+        Flush all arp tables
+    } -setup {
+        set dest [twapi::kl_get [twapi::get_route] -nexthop]
+        # Try to make sure ARP table populated
+        catch { close [socket $dest 1234] }
+    } -body {
+        set countA [llength [twapi::get_arp_table]]
+        twapi::flush_arp_tables
+        set countB [llength [twapi::get_arp_table]]
+        expr {
+              $countA > 0 && $countB == 0
+          }
+    } -result 1
+
+    ################################################################
+
+    ::tcltest::cleanupTests
+}
+
+namespace delete ::twapi::network::test

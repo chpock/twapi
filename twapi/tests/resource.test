@@ -1,0 +1,1615 @@
+#
+# Copyright (c) 2010, Ashok P. Nadkarni
+# All rights reserved.
+#
+# See the file LICENSE for license
+
+# This file contains tests for commands from nls.tcl
+
+package require tcltest
+eval tcltest::configure $argv
+
+source [file join [file dirname [info script]] testutil.tcl]
+load_twapi_package
+
+#
+# Set up system-specific constants that are used to match test results
+namespace eval twapi::resource::test {
+    namespace import ::tcltest::test
+    ::tcltest::testConstraint win2k [twapi::min_os_version 5]
+    ::tcltest::testConstraint vista [twapi::min_os_version 6]
+
+    proc resource_file name {
+        return [file join rctest $name]
+    }
+
+
+    if {$::tcl_platform(machine) eq "amd64"} {
+        set rctest_dll "rctest64.dll"
+    } else {
+        set rctest_dll "rctest.dll"
+    }
+
+    ################################################################
+
+    test begin_resource_update-1.0 {
+        Open a resource file for update
+    } -constraints {
+        nt
+    } -setup {
+        set resfile [file join [tcltest::temporaryDirectory] [clock clicks].dll]
+        file copy $rctest_dll $resfile
+    } -body {
+        twapi::end_resource_update [twapi::begin_resource_update $resfile]
+        # Verify that no resource were auto delete by opening
+        set reslibh [twapi::load_library $resfile -datafile]
+        twapi::enumerate_resource_types $reslibh
+    } -cleanup {
+        twapi::free_library $reslibh
+        file delete $resfile
+    } -result {1 2 3 4 5 6 9 12 14 23}
+
+    test begin_resource_update-2.0 {
+        Open a resource file for update -deleteall
+    } -constraints {
+        nt
+    } -setup {
+        set resfile [file join [tcltest::temporaryDirectory] [clock clicks].dll]
+        file copy $rctest_dll $resfile
+    } -body {
+        twapi::end_resource_update [twapi::begin_resource_update $resfile -deleteall]
+        set reslibh [twapi::load_library $resfile -datafile]
+        twapi::enumerate_resource_types $reslibh
+    } -cleanup {
+        twapi::free_library $reslibh
+        file delete $resfile
+    } -result {}
+
+    ################################################################
+
+    test end_resource_update-1.0 {
+        End a resource file update
+    } -constraints {
+        nt
+    } -setup {
+        set resfile [file join [tcltest::temporaryDirectory] [clock clicks].dll]
+        file copy $rctest_dll $resfile
+    } -body {
+        twapi::end_resource_update [twapi::begin_resource_update $resfile]
+    } -cleanup {
+        file delete $resfile
+    } -result ""
+
+    test end_resource_update-2.0 {
+        End resource file update with -discard
+    } -constraints {
+        nt
+    } -setup {
+        set resfile [file join [tcltest::temporaryDirectory] [clock clicks].dll]
+        file copy $rctest_dll $resfile
+    } -body {
+        set resh [twapi::begin_resource_update $resfile -deleteall]
+        twapi::end_resource_update $resh -discard
+        set reslibh [twapi::load_library $resfile -datafile]
+        twapi::enumerate_resource_types $reslibh
+    } -cleanup {
+        twapi::free_library $reslibh
+        file delete $resfile
+    } -result {1 2 3 4 5 6 9 12 14 23}
+
+    test end_resource_update-2.1 {
+        End resource file update with discarded delete changes
+    } -constraints {
+        nt
+    } -setup {
+        set resfile [file join [tcltest::temporaryDirectory] [clock clicks].dll]
+        file copy $rctest_dll $resfile
+    } -body {
+        set resh [twapi::begin_resource_update $resfile]
+        twapi::delete_resource $resh 9 101 1033
+        twapi::end_resource_update $resh -discard
+        set reslibh [twapi::load_library $resfile -datafile]
+        binary scan [twapi::read_resource $reslibh 9 101 1033] H* hex
+        set hex
+    } -cleanup {
+        twapi::free_library $reslibh
+        file delete $resfile
+    } -result {9f00430002000000}
+
+
+    ################################################################
+
+    test delete_resource-1.0 {
+        Delete a resource
+    } -constraints {
+        nt
+    } -setup {
+        set resfile [file join [tcltest::temporaryDirectory] [clock clicks].dll]
+        file copy $rctest_dll $resfile
+    } -body {
+        set resh [twapi::begin_resource_update $resfile]
+        twapi::delete_resource $resh 9 101 1033
+        twapi::end_resource_update $resh
+        set reslibh [twapi::load_library $resfile -datafile]
+        twapi::read_resource $reslibh 9 101 1033
+    } -cleanup {
+        twapi::free_library $reslibh
+        file delete $resfile
+    } -returnCodes error -result "The specified resource type cannot be found in the image file."
+
+    test delete_resource-1.1 {
+        Delete a non-existent resource and make sure existing resources not modified
+    } -constraints {
+        nt
+    } -setup {
+        set resfile [file join [tcltest::temporaryDirectory] [clock clicks].dll]
+        file copy $rctest_dll $resfile
+    } -body {
+        set resh [twapi::begin_resource_update $resfile]
+	catch {twapi::delete_resource $resh 9 101 1034}
+	catch {twapi::end_resource_update $resh}
+        set reslibh [twapi::load_library $resfile -datafile]
+        binary scan [twapi::read_resource $reslibh 9 101 1033] H* hex
+        set hex
+    } -cleanup {
+        twapi::free_library $reslibh
+        file delete $resfile
+    } -result {9f00430002000000}
+
+    ################################################################
+
+    test update_resource-1.0 {
+        Update a resource (new resource)
+    } -constraints {
+        nt
+    } -setup {
+        set resfile [file join [tcltest::temporaryDirectory] [clock clicks].dll]
+        file copy $rctest_dll $resfile
+        # Delete all resource from the file
+        twapi::end_resource_update [twapi::begin_resource_update $resfile -deleteall]
+        # Verify all resource deleted
+        set reslibh [twapi::load_library $resfile -datafile]
+        set resources [twapi::enumerate_resource_types $reslibh]
+        twapi::free_library $reslibh
+        if {[llength $resources] != 0} {
+            error "Could not empty out resources from test resource file"
+        }
+    } -body {
+        # Read a resource from the test template
+        set reslibh [twapi::load_library $rctest_dll -datafile]
+        set data [twapi::read_resource $reslibh 9 101 1033]
+        twapi::free_library $reslibh
+        set resh [twapi::begin_resource_update $resfile]
+        twapi::update_resource $resh 9 1 1035 $data
+        twapi::end_resource_update $resh
+        # Read it back in
+        set reslibh [twapi::load_library $resfile -datafile]
+        set data2 [twapi::read_resource $reslibh 9 1 1035]
+        twapi::free_library $reslibh
+        expr {$data eq $data2}
+    } -cleanup {
+        file delete $resfile
+    } -result 1
+
+    test update_resource-1.1 {
+        Update a resource (existing resource)
+    } -constraints {
+        nt
+    } -setup {
+        set resfile [file join [tcltest::temporaryDirectory] [clock clicks].dll]
+        file copy $rctest_dll $resfile
+
+    } -body {
+        # Verify that a resource exists first
+        set reslibh [twapi::load_library $resfile -datafile]
+        twapi::read_resource $reslibh 9 101 1033
+        twapi::free_library $reslibh
+        # No error, so resource exists, now replace it
+
+        set resh [twapi::begin_resource_update $resfile]
+        # Note for our purposes, format of data does not have to match
+        # resource type
+        set data [binary format i4 {1 2 3 4}]
+        twapi::update_resource $resh 9 101 1033 $data
+        twapi::end_resource_update $resh
+        # Read it back in
+        set reslibh [twapi::load_library $resfile -datafile]
+        set data2 [twapi::read_resource $reslibh 9 101 1033]
+        twapi::free_library $reslibh
+        expr {$data eq $data2}
+    } -cleanup {
+        file delete $resfile
+    } -result 1
+
+    ################################################################
+
+    test read_resource-1.0 {
+        Read cursors in a resource file
+    } -constraints {
+        nt
+    } -setup {
+        set reslibh [twapi::load_library $rctest_dll -datafile]
+    } -body {
+        binary scan [twapi::read_resource $reslibh 1 6 0] H* hex
+        set hex
+    } -cleanup {
+        twapi::free_library $reslibh
+    } -result {000000002800000020000000400000000100010000000000000100000000000000000000000000000000000000000000ffffff0000000000000000000000000000080200000100000008aa0000000400002aa820010100100a800888040044400808200010101000082a0a000004444402222a0010001000028a2aa00044000402aa28a0110010000a8a2a800440440408a0aa8001101010088a8280004440000808200800011110000000000000000000000000fffffffffffffffffffffffffff3fcfffff031fffff645fffff669ffff8002cffc7e5707f03ea337e3cf0b37e7b3cabbe7cbedbbe781f5bbe74009bbe89891bbe9b921bbe831851bed8bc45bed11c65bee39e55bf434d16bf20f0b6bf30f116bf4434d6bf7603c6bf7881ce7f3e68ee7f91000e7feffffffffffffffffffffff}
+
+
+    test read_resource-1.1 {
+        Read bitmaps in a resource file
+    } -constraints {
+        nt
+    } -setup {
+        set reslibh [twapi::load_library $rctest_dll -datafile]
+    } -body {
+        binary scan [twapi::read_resource $reslibh 2 106 0] H* hex
+        set hex
+    } -cleanup {
+        twapi::free_library $reslibh
+    } -result {2800000030000000300000000100040000000000800400000000000000000000000000000000000000000000000080000080000000808000800000008000800080800000c0c0c000808080000000ff0000ff000000ffff00ff000000ff00ff00ffff0000ffffff00fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff9ffffffffffffffffffffffff999999ffffffffffffffff99fffffffffffffffffffffff99ffff9ffffffffffffffff99ffffffffffffffff99fffff9ffff9fffffffffffffffff99ffffff999999fffff9fffff9fff9ffffffffffffffffff9fffff999fffffffffff9ffff9ff9fffffffffffffffffff9fffff9fffffffffffff9fffff9fffffffffffffffffffff9fffff9ffffffffffff99fffff9ffffffffffffffffffff99fffff9ffffffffffff9ffffff9ffffffffffffffffffff99fffff9ff9999ffffff9ffffff999999fffffffffffffff99ffffff9ffff9ffffff9fffffff9fffffffffffffffffff99ffffff9ffff9ffffff9fffffff99ffffffffffffff9fff99ffffff999999ffffff99fffffff9ffffffffffffff99f999999fffff99fffffffff999fffff9fffffffffffffff999ffff99fffffffffffffffffffffff9fffffffffffffffffffffff9fffffffffffffffffffffff9ffffffffffffffffffffffffffffffffffffffffffffff9fffffffffffffffffffffffffffffffffffffffffffffff9ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff0ffffffffffffffffffffffffffffffffffffffffffffff00ffffffffffffffffffffffffffffffffffffffffffffff00fffffffffffffffffffffffffffffffffffffffffffffff0fffffffffffffffffffffffffffffffffffffffffff0fff0ffffffffffffffffffffffffffffffffffffffffff00ff00fffffffffffffffffffffffffffffffff00ffff00f0fff0ffffffffffffffffffffff0ffffff00fff00fff00000fff00000fff00fffffffffffff0ffff0000f00f00ff0ff0ffff0fff0fff0ffffffffffffff0ffff0ff000fff0ff00f00fff0f000fff0ffffffffffffff0fffffffffffff0fff000ffff000fffff0ffffffffffffff0ffffffffffffffffffffffffffffffffffffffffffffff00f0000fffffffffffffffffffffffffffffffffffffff00000fffffffffffffffffffffffffffffff0ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff}
+    
+    test read_resource-1.2 {
+        Read icons in a resource file
+    } -constraints {
+        nt
+    } -setup {
+        set reslibh [twapi::load_library $rctest_dll -datafile]
+    } -body {
+        binary scan [twapi::read_resource $reslibh 3 1 0] H* hex
+        set hex
+    } -cleanup {
+        twapi::free_library $reslibh
+    } -result {2800000020000000400000000100040000000000800200000000000000000000000000000000000000000000000080000080000000808000800000008000800080800000c0c0c000808080000000ff0000ff000000ffff00ff000000ff00ff00ffff0000ffffff000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000009000000000000000000000000000000999000000000000000000000000000099900000000000000000000000000009990000000000000000000000000009999000000000000000000000000000999900000000000000000000000000099900000000000000000000000000009990000000000000000000000000000999000000000000000000000000000099900000000000000000000000000000099990000000000000000000000000000099990000000000000000000000000000009990000000000000000000000000000009000000000000000000000000000000090000000000000000000000000000009990000000000000000000000000000099000000000000000000000000000009990000000000000000000099999999999999999999999000000000999999999999999999999990000000000000000099900000000000000000000000000000990000000000000000000000999999999999999999999990000000009999999999999999999999900000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000fffffffffffffffffffffffffffffffffffffffffffff7ffffffe3ffffffc7ffffff8ffffffe1ffffffc3ffffff8fffffff1ffffffe3ffffffc7ffffffe1fffffff0fffffffc7ffffffefffffffefffffffc7ffffffcfffffff8fffff000001ff000001ffff1fffffff3fffff000001ff000001fffffffffffffffffffffffff}
+
+
+    test read_resource-1.3 {
+        Read menus in a resource file
+    } -constraints {
+        nt
+    } -setup {
+        set reslibh [twapi::load_library $rctest_dll -datafile]
+    } -body {
+        binary scan [twapi::read_resource $reslibh 4 110 0] H* hex
+        set hex
+    } -cleanup {
+        twapi::free_library $reslibh
+    } -result {000000001000460069006c0065000000800004e35000720069006e007400000090004500640069007400000080004c045300650061007200630068000000}
+
+    test read_resource-1.4 {
+        Read dialogs in a resource file
+    } -constraints {
+        nt
+    } -setup {
+        set reslibh [twapi::load_library $rctest_dll -datafile]
+    } -body {
+        binary scan [twapi::read_resource $reslibh 5 101 0] H* hex
+        set hex
+    } -cleanup {
+        twapi::free_library $reslibh
+    } -result {4000004000000000010000000000b9005d0000000000000008004d0053002000530061006e00730020005300650072006900660000000000000002500000000037002a004a000800ffffffff820054004f0044004f003a0020006c00610079006f0075007400200066006f0072006d00760069006500770000000000}
+
+    test read_resource-1.5 {
+        Read string block in a resource file
+    } -constraints {
+        nt
+    } -setup {
+        set reslibh [twapi::load_library $rctest_dll -datafile]
+    } -body {
+        # NOTE this reads string BLOCK, NOT a string
+        binary scan [twapi::read_resource $reslibh 6 1 0] H* hex
+        set hex
+    } -cleanup {
+        twapi::free_library $reslibh
+    } -result {000007004e00650075007400720061006c0010004e00650075007400720061006c002800440065006600610075006c007400290015004e00650075007400720061006c0028005300790073002e002000440065006600610075006c00740029000900420075006c00670061007200690061006e000800430072006f0061007400690061006e00050043007a006500630068000600440061006e0069007300680012004400750074006300680028004e00650074006800650072006c0061006e006400730029000e00440075007400630068002800420065006c006700690075006d0029000d0045006e0067006c00690073006800280055002e0053002e0029000d0045006e0067006c00690073006800280055002e004b002e002900120045006e0067006c0069007300680028004100750073007400720061006c006900610029000f0045006e0067006c006900730068002800430061006e006100640061002900130045006e0067006c0069007300680028004e00650077005a00650061006c0061006e0064002900100045006e0067006c0069007300680028004900720065006c0061006e0064002900}
+
+    test read_resource-1.6 {
+        Read accelerator in a resource file
+    } -constraints {
+        nt
+    } -setup {
+        set reslibh [twapi::load_library $rctest_dll -datafile]
+    } -body {
+        binary scan [twapi::read_resource $reslibh 9 101 0] H* hex
+        set hex
+    } -cleanup {
+        twapi::free_library $reslibh
+    } -result {9f00430002000000}
+
+    test read_resource-1.7 {
+        Read group cursors in a resource file
+    } -constraints {
+        nt
+    } -setup {
+        set reslibh [twapi::load_library $rctest_dll -datafile]
+    } -body {
+        binary scan [twapi::read_resource $reslibh 12 103 0] H* hex
+        set hex
+    } -cleanup {
+        twapi::free_library $reslibh
+    } -result {0000020001002000400001000100340100000600}
+
+    test read_resource-1.8 {
+        Read group icons in a resource file
+    } -constraints {
+        nt
+    } -setup {
+        set reslibh [twapi::load_library $rctest_dll -datafile]
+    } -body {
+        binary scan [twapi::read_resource $reslibh 14 102 0] H* hex
+        set hex
+    } -cleanup {
+        twapi::free_library $reslibh
+    } -result {0000010001002020100001000400e80200000100}
+
+    test read_resource-1.9 {
+        Read html in a resource file
+    } -constraints {
+        nt
+    } -setup {
+        set reslibh [twapi::load_library $rctest_dll -datafile]
+    } -body {
+        binary scan [twapi::read_resource $reslibh 23 105 0] H* hex
+        set hex
+    } -cleanup {
+        twapi::free_library $reslibh
+    } -result {3c48544d4c3e0d0a3c424f44593e0d0a3c703e5468697320697320746573742068746d6c3c2f703e0d0a3c2f424f44593e0d0a3c2f48544d4c3e}
+
+    test read_resource-2.0 {
+        Read resource in a resource file using a string name
+    } -constraints {
+        nt
+    } -setup {
+        set reslibh [twapi::load_library $rctest_dll -datafile]
+    } -body {
+        binary scan [twapi::read_resource $reslibh 14 {"ICON3"} 0] H* hex
+        set hex
+    } -cleanup {
+        twapi::free_library $reslibh
+    } -result {0000010002002020100001000400e802000004001010100001000400280100000500}
+
+    test read_resource-3.0 {
+        Read non-existent resource in a resource file
+    } -constraints {
+        nt
+    } -setup {
+        set reslibh [twapi::load_library $rctest_dll -datafile]
+    } -body {
+        twapi::read_resource $reslibh 6 999 0
+    } -cleanup {
+        twapi::free_library $reslibh
+    } -result "The specified resource name cannot be found in the image file." -returnCodes error
+
+    test read_resource-3.1 {
+        Read non-existent resource type in a resource file
+    } -constraints {
+        nt
+    } -setup {
+        set reslibh [twapi::load_library $rctest_dll -datafile]
+    } -body {
+        twapi::read_resource $reslibh 1234 1 0
+    } -cleanup {
+        twapi::free_library $reslibh
+    } -result "The specified resource type cannot be found in the image file." -returnCodes error
+    
+    test read_resource-4.0 {
+        Read language-specific resource (accelerator)in a resource file
+    } -constraints {
+        nt
+    } -setup {
+        set reslibh [twapi::load_library $rctest_dll -datafile]
+    } -body {
+        binary scan [twapi::read_resource $reslibh 9 101 1033] H* hex
+        set hex
+    } -cleanup {
+        twapi::free_library $reslibh
+    } -result {9f00430002000000}
+
+    test read_resource-4.1 {
+        Read non-existing language-specific resource in a resource file
+    } -constraints {
+        nt
+    } -setup {
+        set reslibh [twapi::load_library $rctest_dll -datafile]
+    } -body {
+        # NOTE: This test may fail on some systems where a resource
+        # for a different language is returned if one is not available
+        # for the specified language
+        binary scan [twapi::read_resource $reslibh 9 101 1034] H* hex
+        set hex
+    } -cleanup {
+        twapi::free_library $reslibh
+    } -returnCodes error -result "The specified resource language ID cannot be found in the image file."
+
+    ################################################################
+
+    test read_resource_string-1.0 {
+        Read a resource string in the first string block
+    } -constraints {
+        nt
+    } -setup {
+        set reslibh [twapi::load_library $rctest_dll -datafile]
+    } -body {
+        twapi::read_resource_string $reslibh 1 0
+    } -cleanup {
+        twapi::free_library $reslibh
+    } -result Neutral
+
+    test read_resource_string-1.1 {
+        Read the last resource string a string block
+    } -constraints {
+        nt
+    } -setup {
+        set reslibh [twapi::load_library $rctest_dll -datafile]
+    } -body {
+        twapi::read_resource_string $reslibh 16 0
+    } -cleanup {
+        twapi::free_library $reslibh
+    } -result Finnish
+
+    test read_resource_string-1.2 {
+        Read a string from an arbitrary block
+    } -constraints {
+        nt
+    } -setup {
+        set reslibh [twapi::load_library $rctest_dll -datafile]
+    } -body {
+        twapi::read_resource_string $reslibh 58117 0
+    } -cleanup {
+        twapi::free_library $reslibh
+    } -result {This is string 1}
+    
+    test read_resource_string-1.3 {
+        Read a non-existing string in an block that exists
+    } -constraints {
+        nt
+    } -setup {
+        set reslibh [twapi::load_library $rctest_dll -datafile]
+    } -body {
+        twapi::read_resource_string $reslibh 58 0
+    } -cleanup {
+        twapi::free_library $reslibh
+    } -result ""
+
+    test read_resource_string-1.4 {
+        Read a non-existing string in an block that does not exist
+    } -constraints {
+        nt
+    } -setup {
+        set reslibh [twapi::load_library $rctest_dll -datafile]
+    } -body {
+        twapi::read_resource_string $reslibh 999 0
+    } -cleanup {
+        twapi::free_library $reslibh
+    } -result "The specified resource name cannot be found in the image file." -returnCodes error
+    
+    ################################################################
+
+    test strings_to_resource_stringblock-1.0 {
+        Convert a string block to a list of strings
+    } -constraints {
+        nt
+    } -setup {
+        set reslibh [twapi::load_library $rctest_dll -datafile]
+    } -body {
+        binary scan [twapi::strings_to_resource_stringblock {{} Neutral Neutral(Default) {Neutral(Sys. Default)} Bulgarian Croatian Czech Danish Dutch(Netherlands) Dutch(Belgium) English(U.S.) English(U.K.) English(Australia) English(Canada) English(NewZealand) English(Ireland)}] H* hex
+        set hex
+    } -cleanup {
+        twapi::free_library $reslibh
+    } -result {000007004e00650075007400720061006c0010004e00650075007400720061006c002800440065006600610075006c007400290015004e00650075007400720061006c0028005300790073002e002000440065006600610075006c00740029000900420075006c00670061007200690061006e000800430072006f0061007400690061006e00050043007a006500630068000600440061006e0069007300680012004400750074006300680028004e00650074006800650072006c0061006e006400730029000e00440075007400630068002800420065006c006700690075006d0029000d0045006e0067006c00690073006800280055002e0053002e0029000d0045006e0067006c00690073006800280055002e004b002e002900120045006e0067006c0069007300680028004100750073007400720061006c006900610029000f0045006e0067006c006900730068002800430061006e006100640061002900130045006e0067006c0069007300680028004e00650077005a00650061006c0061006e0064002900100045006e0067006c0069007300680028004900720065006c0061006e0064002900}
+    
+    test strings_to_resource_stringblock-1.1 {
+        Convert a string block to a list of strings
+    } -constraints {
+        nt
+    } -setup {
+        set reslibh [twapi::load_library $rctest_dll -datafile]
+    } -body {
+        set bin [twapi::read_resource $reslibh 6 1 0]
+        string equal $bin [twapi::strings_to_resource_stringblock [twapi::resource_stringblock_to_strings $bin]]
+    } -cleanup {
+        twapi::free_library $reslibh
+    } -result 1
+
+    ################################################################
+
+    test resource_stringblock_to_strings-1.0 {
+        Convert a string block to a list of strings
+    } -constraints {
+        nt
+    } -setup {
+        set reslibh [twapi::load_library $rctest_dll -datafile]
+    } -body {
+        twapi::resource_stringblock_to_strings [twapi::read_resource $reslibh 6 1 0]
+    } -cleanup {
+        twapi::free_library $reslibh
+    } -result {{} Neutral Neutral(Default) {Neutral(Sys. Default)} Bulgarian Croatian Czech Danish Dutch(Netherlands) Dutch(Belgium) English(U.S.) English(U.K.) English(Australia) English(Canada) English(NewZealand) English(Ireland)}
+    
+    ################################################################
+
+    test resource_stringid_to_stringblockid-1.0 {
+        Convert string id 0 to a string block id
+    } -constraints {
+        nt
+    } -body {
+        twapi::resource_stringid_to_stringblockid 0
+    } -result {1 0}
+
+    test resource_stringid_to_stringblockid-1.1 {
+        Convert string id 1 to a string block id
+    } -constraints {
+        nt
+    } -body {
+        twapi::resource_stringid_to_stringblockid 1
+    } -result {1 1}
+
+    test resource_stringid_to_stringblockid-1.2 {
+        Convert string id 15 (last in first block) to a string block id
+    } -constraints {
+        nt
+    } -body {
+        twapi::resource_stringid_to_stringblockid 15
+    } -result {1 15}
+
+    test resource_stringid_to_stringblockid-1.3 {
+        Convert string id 16 (firat in last block) to a string block id
+    } -constraints {
+        nt
+    } -body {
+        twapi::resource_stringid_to_stringblockid 16
+    } -result {2 0}
+
+    test resource_stringid_to_stringblockid-1.4 {
+        Convert a string id to a string block id
+    } -constraints {
+        nt
+    } -body {
+        twapi::resource_stringid_to_stringblockid 1000
+    } -result {63 8}
+   
+
+    ################################################################
+    
+    test enumerate_resource_types-1.0 {
+        Get all resource types in a resource file
+    } -constraints {
+        nt
+    } -setup {
+        set reslibh [twapi::load_library $rctest_dll -datafile]
+    } -body {
+        twapi::enumerate_resource_types $reslibh
+    } -cleanup {
+        twapi::free_library $reslibh
+    } -result {1 2 3 4 5 6 9 12 14 23}
+
+    ################################################################
+
+    test enumerate_resource_names-1.0 {
+        Get names of cursors in a resource file
+    } -constraints {
+        nt
+    } -setup {
+        set reslibh [twapi::load_library $rctest_dll -datafile]
+    } -body {
+        twapi::enumerate_resource_names $reslibh 1
+    } -cleanup {
+        twapi::free_library $reslibh
+    } -result {6 7}
+
+    test enumerate_resource_names-1.1 {
+        Get names of bitmaps in a resource file
+    } -constraints {
+        nt
+    } -setup {
+        set reslibh [twapi::load_library $rctest_dll -datafile]
+    } -body {
+        twapi::enumerate_resource_names $reslibh 2
+    } -cleanup {
+        twapi::free_library $reslibh
+    } -result {106}
+    
+
+    test enumerate_resource_names-1.2 {
+        Get names of icons in a resource file
+    } -constraints {
+        nt
+    } -setup {
+        set reslibh [twapi::load_library $rctest_dll -datafile]
+    } -body {
+        twapi::enumerate_resource_names $reslibh 3
+    } -cleanup {
+        twapi::free_library $reslibh
+    } -result {1 2 3 4 5}
+
+    test enumerate_resource_names-1.3 {
+        Get names of menus in a resource file
+    } -constraints {
+        nt
+    } -setup {
+        set reslibh [twapi::load_library $rctest_dll -datafile]
+    } -body {
+        twapi::enumerate_resource_names $reslibh 4
+    } -cleanup {
+        twapi::free_library $reslibh
+    } -result {110}
+
+    test enumerate_resource_names-1.4 {
+        Get names of dialogs in a resource file
+    } -constraints {
+        nt
+    } -setup {
+        set reslibh [twapi::load_library $rctest_dll -datafile]
+    } -body {
+        twapi::enumerate_resource_names $reslibh 5
+    } -cleanup {
+        twapi::free_library $reslibh
+    } -result {101 106 109}
+
+    test enumerate_resource_names-1.5 {
+        Get names of strings in a resource file
+    } -constraints {
+        nt
+    } -setup {
+        set reslibh [twapi::load_library $rctest_dll -datafile]
+    } -body {
+        twapi::enumerate_resource_names $reslibh 6
+    } -cleanup {
+        twapi::free_library $reslibh
+    } -result {1 2 3 4 69 3633}
+
+    test enumerate_resource_names-1.6 {
+        Get names of accelerator in a resource file
+    } -constraints {
+        nt
+    } -setup {
+        set reslibh [twapi::load_library $rctest_dll -datafile]
+    } -body {
+        twapi::enumerate_resource_names $reslibh 9
+    } -cleanup {
+        twapi::free_library $reslibh
+    } -result {101}
+
+    test enumerate_resource_names-1.7 {
+        Get names of group cursors in a resource file
+    } -constraints {
+        nt
+    } -setup {
+        set reslibh [twapi::load_library $rctest_dll -datafile]
+    } -body {
+        twapi::enumerate_resource_names $reslibh 12
+    } -cleanup {
+        twapi::free_library $reslibh
+    } -result {103 104}
+
+    test enumerate_resource_names-1.8 {
+        Get names of group icons in a resource file
+    } -constraints {
+        nt
+    } -setup {
+        set reslibh [twapi::load_library $rctest_dll -datafile]
+    } -body {
+        twapi::enumerate_resource_names $reslibh 14
+    } -cleanup {
+        twapi::free_library $reslibh
+    } -result {{"ICON3"} 102 107}
+
+    test enumerate_resource_names-1.9 {
+        Get names of html in a resource file
+    } -constraints {
+        nt
+    } -setup {
+        set reslibh [twapi::load_library $rctest_dll -datafile]
+    } -body {
+        twapi::enumerate_resource_names $reslibh 23
+    } -cleanup {
+        twapi::free_library $reslibh
+    } -result {105}
+
+    test enumerate_resource_names-2.0 {
+        Get names of non-existent resource types in a resource file
+    } -constraints {
+        nt
+    } -setup {
+        set reslibh [twapi::load_library $rctest_dll -datafile]
+    } -body {
+        twapi::enumerate_resource_names $reslibh 999
+    } -cleanup {
+        twapi::free_library $reslibh
+    } -result "The specified resource type cannot be found in the image file." -returnCodes error
+    
+
+    ################################################################
+
+    test enumerate_resource_languages-1.0 {
+        Get languages of a resource type in a resource file
+    } -constraints {
+        nt
+    } -setup {
+        set reslibh [twapi::load_library $rctest_dll -datafile]
+    } -body {
+        twapi::enumerate_resource_languages $reslibh 6 1
+    } -cleanup {
+        twapi::free_library $reslibh
+    } -result {1033}
+
+    ################################################################
+
+    test load_bitmap_from_file-1.0 {
+        Load bitmap from file
+    } -body {
+        set h [twapi::load_bitmap_from_file [resource_file bitmap.bmp]]
+        twapi::Twapi_PtrType $h
+    } -cleanup {
+        twapi::free_bitmap $h
+    } -result HGDIOBJ
+
+    test load_bitmap_from_file-2.0 {
+        Load bitmap from file with -createdibsection false
+    } -body {
+        set h [twapi::load_bitmap_from_file [resource_file bitmap.bmp] -createdibsection false]
+        twapi::Twapi_PtrType $h
+    } -cleanup {
+        twapi::free_bitmap $h
+    } -result HGDIOBJ
+
+    test load_bitmap_from_file-2.1 {
+        Load bitmap from file with -createdibsection true
+    } -body {
+        set h [twapi::load_bitmap_from_file [resource_file bitmap.bmp] -createdibsection 1]
+        twapi::Twapi_PtrType $h
+    } -cleanup {
+        twapi::free_bitmap $h
+    } -result HGDIOBJ
+
+    test load_bitmap_from_file-3.0 {
+        Load bitmap from file with -loadtransparent false
+    } -body {
+        set h [twapi::load_bitmap_from_file [resource_file bitmap.bmp] -loadtransparent 0]
+        twapi::Twapi_PtrType $h
+    } -cleanup {
+        twapi::free_bitmap $h
+    } -result HGDIOBJ
+
+    test load_bitmap_from_file-3.1 {
+        Load bitmap from file with -loadtransparent true
+    } -body {
+        set h [twapi::load_bitmap_from_file [resource_file bitmap.bmp] -loadtransparent true]
+        twapi::Twapi_PtrType $h
+    } -cleanup {
+        twapi::free_bitmap $h
+    } -result HGDIOBJ
+
+    test load_bitmap_from_file-4.0 {
+        Load bitmap from file with -monochrome false
+    } -body {
+        set h [twapi::load_bitmap_from_file [resource_file bitmap.bmp] -monochrome 0]
+        twapi::Twapi_PtrType $h
+    } -cleanup {
+        twapi::free_bitmap $h
+    } -result HGDIOBJ
+
+    test load_bitmap_from_file-4.1 {
+        Load bitmap from file with -monochrome true
+    } -body {
+        set h [twapi::load_bitmap_from_file [resource_file bitmap.bmp] -monochrome true]
+        twapi::Twapi_PtrType $h
+    } -cleanup {
+        twapi::free_bitmap $h
+    } -result HGDIOBJ
+
+    test load_bitmap_from_file-5.0 {
+        Load bitmap from file with -vgacolor false
+    } -body {
+        set h [twapi::load_bitmap_from_file [resource_file bitmap.bmp] -vgacolor false]
+        twapi::Twapi_PtrType $h
+    } -cleanup {
+        twapi::free_bitmap $h
+    } -result HGDIOBJ
+
+    test load_bitmap_from_file-5.1 {
+        Load bitmap from file with -vgacolor true
+    } -body {
+        set h [twapi::load_bitmap_from_file [resource_file bitmap.bmp] -vgacolor 1]
+        twapi::Twapi_PtrType $h
+    } -cleanup {
+        twapi::free_bitmap $h
+    } -result HGDIOBJ
+
+    ################################################################
+
+    test load_cursor_from_file-1.0 {
+        Load cursor from file
+    } -body {
+        set h [twapi::load_cursor_from_file [resource_file cursor.cur]]
+        twapi::Twapi_PtrType $h
+    } -cleanup {
+        twapi::free_cursor $h
+    } -result HCURSOR
+
+    test load_cursor_from_file-2.0 {
+        Load cursor from file with -defaultsize false
+    } -body {
+        set h [twapi::load_cursor_from_file [resource_file cursor.cur] -defaultsize 0]
+        twapi::Twapi_PtrType $h
+    } -cleanup {
+        twapi::free_cursor $h
+    } -result HCURSOR
+
+    test load_cursor_from_file-2.1 {
+        Load cursor from file with -defaultsize true
+    } -body {
+        set h [twapi::load_cursor_from_file [resource_file cursor.cur] -defaultsize true]
+        twapi::Twapi_PtrType $h
+    } -cleanup {
+        twapi::free_cursor $h
+    } -result HCURSOR
+
+    test load_cursor_from_file-3.0 {
+        Load cursor from file with -loadtransparent false
+    } -body {
+        set h [twapi::load_cursor_from_file [resource_file cursor.cur] -loadtransparent 0]
+        twapi::Twapi_PtrType $h
+    } -cleanup {
+        twapi::free_cursor $h
+    } -result HCURSOR
+
+    test load_cursor_from_file-3.1 {
+        Load cursor from file with -loadtransparent true
+    } -body {
+        set h [twapi::load_cursor_from_file [resource_file cursor.cur] -loadtransparent true]
+        twapi::Twapi_PtrType $h
+    } -cleanup {
+        twapi::free_cursor $h
+    } -result HCURSOR
+
+    test load_cursor_from_file-4.0 {
+        Load cursor from file with -monochrome false
+    } -body {
+        set h [twapi::load_cursor_from_file [resource_file cursor.cur] -monochrome 0]
+        twapi::Twapi_PtrType $h
+    } -cleanup {
+        twapi::free_cursor $h
+    } -result HCURSOR
+
+    test load_cursor_from_file-4.1 {
+        Load cursor from file with -monochrome true
+    } -body {
+        set h [twapi::load_cursor_from_file [resource_file cursor.cur] -monochrome true]
+        twapi::Twapi_PtrType $h
+    } -cleanup {
+        twapi::free_cursor $h
+    } -result HCURSOR
+
+    test load_cursor_from_file-5.0 {
+        Load cursor from file with -vgacolor false
+    } -body {
+        set h [twapi::load_cursor_from_file [resource_file cursor.cur] -vgacolor false]
+        twapi::Twapi_PtrType $h
+    } -cleanup {
+        twapi::free_cursor $h
+    } -result HCURSOR
+
+    test load_cursor_from_file-5.1 {
+        Load cursor from file with -vgacolor true
+    } -body {
+        set h [twapi::load_cursor_from_file [resource_file cursor.cur] -vgacolor 1]
+        twapi::Twapi_PtrType $h
+    } -cleanup {
+        twapi::free_cursor $h
+    } -result HCURSOR
+
+    test load_cursor_from_file-6.0 {
+        Load cursor from file with -width and -height
+    } -body {
+        set h [twapi::load_cursor_from_file [resource_file cursor.cur] -width 16 -height 16]
+        twapi::Twapi_PtrType $h
+    } -cleanup {
+        twapi::free_cursor $h
+    } -result HCURSOR
+
+    ################################################################
+
+    test load_icon_from_file-1.0 {
+        Load icon from file
+    } -body {
+        set h [twapi::load_icon_from_file [resource_file icon1.ico]]
+        twapi::Twapi_PtrType $h
+    } -cleanup {
+        twapi::free_icon $h
+    } -result HICON
+
+    test load_icon_from_file-2.0 {
+        Load icon from file with -defaultsize false
+    } -body {
+        set h [twapi::load_icon_from_file [resource_file icon1.ico] -defaultsize 0]
+        twapi::Twapi_PtrType $h
+    } -cleanup {
+        twapi::free_icon $h
+    } -result HICON
+
+    test load_icon_from_file-2.1 {
+        Load icon from file with -defaultsize true
+    } -body {
+        set h [twapi::load_icon_from_file [resource_file icon1.ico] -defaultsize true]
+        twapi::Twapi_PtrType $h
+    } -cleanup {
+        twapi::free_icon $h
+    } -result HICON
+
+    test load_icon_from_file-3.0 {
+        Load icon from file with -loadtransparent false
+    } -body {
+        set h [twapi::load_icon_from_file [resource_file icon1.ico] -loadtransparent 0]
+        twapi::Twapi_PtrType $h
+    } -cleanup {
+        twapi::free_icon $h
+    } -result HICON
+
+    test load_icon_from_file-3.1 {
+        Load icon from file with -loadtransparent true
+    } -body {
+        set h [twapi::load_icon_from_file [resource_file icon1.ico] -loadtransparent true]
+        twapi::Twapi_PtrType $h
+    } -cleanup {
+        twapi::free_icon $h
+    } -result HICON
+
+    test load_icon_from_file-4.0 {
+        Load icon from file with -monochrome false
+    } -body {
+        set h [twapi::load_icon_from_file [resource_file icon1.ico] -monochrome 0]
+        twapi::Twapi_PtrType $h
+    } -cleanup {
+        twapi::free_icon $h
+    } -result HICON
+
+    test load_icon_from_file-4.1 {
+        Load icon from file with -monochrome true
+    } -body {
+        set h [twapi::load_icon_from_file [resource_file icon1.ico] -monochrome true]
+        twapi::Twapi_PtrType $h
+    } -cleanup {
+        twapi::free_icon $h
+    } -result HICON
+
+    test load_icon_from_file-5.0 {
+        Load icon from file with -vgacolor false
+    } -body {
+        set h [twapi::load_icon_from_file [resource_file icon1.ico] -vgacolor false]
+        twapi::Twapi_PtrType $h
+    } -cleanup {
+        twapi::free_icon $h
+    } -result HICON
+
+    test load_icon_from_file-5.1 {
+        Load icon from file with -vgacolor true
+    } -body {
+        set h [twapi::load_icon_from_file [resource_file icon1.ico] -vgacolor 1]
+        twapi::Twapi_PtrType $h
+    } -cleanup {
+        twapi::free_icon $h
+    } -result HICON
+
+    test load_icon_from_file-6.0 {
+        Load icon from file with -width and -height
+    } -body {
+        set h [twapi::load_icon_from_file [resource_file icon1.ico] -width 16 -height 16]
+        twapi::Twapi_PtrType $h
+    } -cleanup {
+        twapi::free_icon $h
+    } -result HICON
+
+    ################################################################
+
+    test load_bitmap_from_module-1.0 {
+        Load bitmap from module
+    } -setup {
+        set reslibh [twapi::load_library $rctest_dll -datafile]
+    } -body {
+        set h [twapi::load_bitmap_from_module $reslibh 106]
+        twapi::Twapi_PtrType $h
+    } -cleanup {
+        twapi::free_bitmap $h
+        twapi::free_library $reslibh
+    } -result HGDIOBJ
+
+    test load_bitmap_from_module-2.0 {
+        Load bitmap from file with -createdibsection false
+    } -setup {
+        set reslibh [twapi::load_library $rctest_dll -datafile]
+    } -body {
+        set h [twapi::load_bitmap_from_module $reslibh 106 -createdibsection false]
+        twapi::Twapi_PtrType $h
+    } -cleanup {
+        twapi::free_bitmap $h
+        twapi::free_library $reslibh
+    } -result HGDIOBJ
+
+    test load_bitmap_from_module-2.1 {
+        Load bitmap from file with -createdibsection true
+    } -setup {
+        set reslibh [twapi::load_library $rctest_dll -datafile]
+    } -body {
+        set h [twapi::load_bitmap_from_module $reslibh 106 -createdibsection 1]
+        twapi::Twapi_PtrType $h
+    } -cleanup {
+        twapi::free_bitmap $h
+        twapi::free_library $reslibh
+    } -result HGDIOBJ
+
+    test load_bitmap_from_module-3.0 {
+        Load bitmap from file with -loadtransparent false
+    } -setup {
+        set reslibh [twapi::load_library $rctest_dll -datafile]
+    } -body {
+        set h [twapi::load_bitmap_from_module $reslibh 106 -loadtransparent 0]
+        twapi::Twapi_PtrType $h
+    } -cleanup {
+        twapi::free_bitmap $h
+        twapi::free_library $reslibh
+    } -result HGDIOBJ
+
+    test load_bitmap_from_module-3.1 {
+        Load bitmap from file with -loadtransparent true
+    } -setup {
+        set reslibh [twapi::load_library $rctest_dll -datafile]
+    } -body {
+        set h [twapi::load_bitmap_from_module $reslibh 106 -loadtransparent true]
+        twapi::Twapi_PtrType $h
+    } -cleanup {
+        twapi::free_bitmap $h
+        twapi::free_library $reslibh
+    } -result HGDIOBJ
+
+    test load_bitmap_from_module-4.0 {
+        Load bitmap from file with -monochrome false
+    } -setup {
+        set reslibh [twapi::load_library $rctest_dll -datafile]
+    } -body {
+        set h [twapi::load_bitmap_from_module $reslibh 106 -monochrome 0]
+        twapi::Twapi_PtrType $h
+    } -cleanup {
+        twapi::free_bitmap $h
+        twapi::free_library $reslibh
+    } -result HGDIOBJ
+
+    test load_bitmap_from_module-4.1 {
+        Load bitmap from file with -monochrome true
+    } -setup {
+        set reslibh [twapi::load_library $rctest_dll -datafile]
+    } -body {
+        set h [twapi::load_bitmap_from_module $reslibh 106 -monochrome true]
+        twapi::Twapi_PtrType $h
+    } -cleanup {
+        twapi::free_bitmap $h
+        twapi::free_library $reslibh
+    } -result HGDIOBJ
+
+    test load_bitmap_from_module-5.0 {
+        Load bitmap from file with -vgacolor false
+    } -setup {
+        set reslibh [twapi::load_library $rctest_dll -datafile]
+    } -body {
+        set h [twapi::load_bitmap_from_module $reslibh 106 -vgacolor false]
+        twapi::Twapi_PtrType $h
+    } -cleanup {
+        twapi::free_bitmap $h
+        twapi::free_library $reslibh
+    } -result HGDIOBJ
+
+    test load_bitmap_from_module-5.1 {
+        Load bitmap from file with -vgacolor true
+    } -setup {
+        set reslibh [twapi::load_library $rctest_dll -datafile]
+    } -body {
+        set h [twapi::load_bitmap_from_module $reslibh 106 -vgacolor 1]
+        twapi::Twapi_PtrType $h
+    } -cleanup {
+        twapi::free_bitmap $h
+        twapi::free_library $reslibh
+    } -result HGDIOBJ
+
+
+    ################################################################
+
+    test load_cursor_from_module-1.0 {
+        Load cursor from module
+    } -setup {
+        set reslibh [twapi::load_library $rctest_dll -datafile]
+    } -body {
+        set h [twapi::load_cursor_from_module $reslibh 103]
+        twapi::Twapi_PtrType $h
+    } -cleanup {
+        twapi::free_cursor $h
+        twapi::free_library $reslibh
+    } -result HCURSOR
+
+    test load_cursor_from_module-2.0 {
+        Load cursor from file with -defaultsize false
+    } -setup {
+        set reslibh [twapi::load_library $rctest_dll -datafile]
+    } -body {
+        set h [twapi::load_cursor_from_module $reslibh 103 -defaultsize false]
+        twapi::Twapi_PtrType $h
+    } -cleanup {
+        twapi::free_cursor $h
+        twapi::free_library $reslibh
+    } -result HCURSOR
+
+    test load_cursor_from_module-2.1 {
+        Load cursor from file with -defaultsize true
+    } -setup {
+        set reslibh [twapi::load_library $rctest_dll -datafile]
+    } -body {
+        set h [twapi::load_cursor_from_module $reslibh 103 -defaultsize 1]
+        twapi::Twapi_PtrType $h
+    } -cleanup {
+        twapi::free_cursor $h
+        twapi::free_library $reslibh
+    } -result HCURSOR
+
+    test load_cursor_from_module-3.0 {
+        Load cursor from file with -loadtransparent false
+    } -setup {
+        set reslibh [twapi::load_library $rctest_dll -datafile]
+    } -body {
+        set h [twapi::load_cursor_from_module $reslibh 103 -loadtransparent 0]
+        twapi::Twapi_PtrType $h
+    } -cleanup {
+        twapi::free_cursor $h
+        twapi::free_library $reslibh
+    } -result HCURSOR
+
+    test load_cursor_from_module-3.1 {
+        Load cursor from file with -loadtransparent true
+    } -setup {
+        set reslibh [twapi::load_library $rctest_dll -datafile]
+    } -body {
+        set h [twapi::load_cursor_from_module $reslibh 103 -loadtransparent true]
+        twapi::Twapi_PtrType $h
+    } -cleanup {
+        twapi::free_cursor $h
+        twapi::free_library $reslibh
+    } -result HCURSOR
+
+    test load_cursor_from_module-4.0 {
+        Load cursor from file with -monochrome false
+    } -setup {
+        set reslibh [twapi::load_library $rctest_dll -datafile]
+    } -body {
+        set h [twapi::load_cursor_from_module $reslibh 103 -monochrome 0]
+        twapi::Twapi_PtrType $h
+    } -cleanup {
+        twapi::free_cursor $h
+        twapi::free_library $reslibh
+    } -result HCURSOR
+
+    test load_cursor_from_module-4.1 {
+        Load cursor from file with -monochrome true
+    } -setup {
+        set reslibh [twapi::load_library $rctest_dll -datafile]
+    } -body {
+        set h [twapi::load_cursor_from_module $reslibh 103 -monochrome true]
+        twapi::Twapi_PtrType $h
+    } -cleanup {
+        twapi::free_cursor $h
+        twapi::free_library $reslibh
+    } -result HCURSOR
+
+    test load_cursor_from_module-5.0 {
+        Load cursor from file with -vgacolor false
+    } -setup {
+        set reslibh [twapi::load_library $rctest_dll -datafile]
+    } -body {
+        set h [twapi::load_cursor_from_module $reslibh 103 -vgacolor false]
+        twapi::Twapi_PtrType $h
+    } -cleanup {
+        twapi::free_cursor $h
+        twapi::free_library $reslibh
+    } -result HCURSOR
+
+    test load_cursor_from_module-5.1 {
+        Load cursor from file with -vgacolor true
+    } -setup {
+        set reslibh [twapi::load_library $rctest_dll -datafile]
+    } -body {
+        set h [twapi::load_cursor_from_module $reslibh 103 -vgacolor 1]
+        twapi::Twapi_PtrType $h
+    } -cleanup {
+        twapi::free_cursor $h
+        twapi::free_library $reslibh
+    } -result HCURSOR
+
+    test load_cursor_from_module-6.0 {
+        Load cursor from file with -width and -height
+    } -setup {
+        set reslibh [twapi::load_library $rctest_dll -datafile]
+    } -body {
+        set h [twapi::load_cursor_from_module $reslibh 103 -width 16 -height 16]
+        twapi::Twapi_PtrType $h
+    } -cleanup {
+        twapi::free_cursor $h
+    } -result HCURSOR
+
+    ################################################################
+
+    test load_icon_from_module-1.0 {
+        Load icon from module
+    } -setup {
+        set reslibh [twapi::load_library $rctest_dll -datafile]
+    } -body {
+        set h [twapi::load_icon_from_module $reslibh 102]
+        twapi::Twapi_PtrType $h
+    } -cleanup {
+        twapi::free_icon $h
+        twapi::free_library $reslibh
+    } -result HICON
+
+    test load_icon_from_module-2.0 {
+        Load icon from file with -defaultsize false
+    } -setup {
+        set reslibh [twapi::load_library $rctest_dll -datafile]
+    } -body {
+        set h [twapi::load_icon_from_module $reslibh 102 -defaultsize false]
+        twapi::Twapi_PtrType $h
+    } -cleanup {
+        twapi::free_icon $h
+        twapi::free_library $reslibh
+    } -result HICON
+
+    test load_icon_from_module-2.1 {
+        Load icon from file with -defaultsize true
+    } -setup {
+        set reslibh [twapi::load_library $rctest_dll -datafile]
+    } -body {
+        set h [twapi::load_icon_from_module $reslibh 102 -defaultsize 1]
+        twapi::Twapi_PtrType $h
+    } -cleanup {
+        twapi::free_icon $h
+        twapi::free_library $reslibh
+    } -result HICON
+
+    test load_icon_from_module-3.0 {
+        Load icon from file with -loadtransparent false
+    } -setup {
+        set reslibh [twapi::load_library $rctest_dll -datafile]
+    } -body {
+        set h [twapi::load_icon_from_module $reslibh 102 -loadtransparent 0]
+        twapi::Twapi_PtrType $h
+    } -cleanup {
+        twapi::free_icon $h
+        twapi::free_library $reslibh
+    } -result HICON
+
+    test load_icon_from_module-3.1 {
+        Load icon from file with -loadtransparent true
+    } -setup {
+        set reslibh [twapi::load_library $rctest_dll -datafile]
+    } -body {
+        set h [twapi::load_icon_from_module $reslibh 102 -loadtransparent true]
+        twapi::Twapi_PtrType $h
+    } -cleanup {
+        twapi::free_icon $h
+        twapi::free_library $reslibh
+    } -result HICON
+
+    test load_icon_from_module-4.0 {
+        Load icon from file with -monochrome false
+    } -setup {
+        set reslibh [twapi::load_library $rctest_dll -datafile]
+    } -body {
+        set h [twapi::load_icon_from_module $reslibh 102 -monochrome 0]
+        twapi::Twapi_PtrType $h
+    } -cleanup {
+        twapi::free_icon $h
+        twapi::free_library $reslibh
+    } -result HICON
+
+    test load_icon_from_module-4.1 {
+        Load icon from file with -monochrome true
+    } -setup {
+        set reslibh [twapi::load_library $rctest_dll -datafile]
+    } -body {
+        set h [twapi::load_icon_from_module $reslibh 102 -monochrome true]
+        twapi::Twapi_PtrType $h
+    } -cleanup {
+        twapi::free_icon $h
+        twapi::free_library $reslibh
+    } -result HICON
+
+    test load_icon_from_module-5.0 {
+        Load icon from file with -vgacolor false
+    } -setup {
+        set reslibh [twapi::load_library $rctest_dll -datafile]
+    } -body {
+        set h [twapi::load_icon_from_module $reslibh 102 -vgacolor false]
+        twapi::Twapi_PtrType $h
+    } -cleanup {
+        twapi::free_icon $h
+        twapi::free_library $reslibh
+    } -result HICON
+
+    test load_icon_from_module-5.1 {
+        Load icon from file with -vgacolor true
+    } -setup {
+        set reslibh [twapi::load_library $rctest_dll -datafile]
+    } -body {
+        set h [twapi::load_icon_from_module $reslibh 102 -vgacolor 1]
+        twapi::Twapi_PtrType $h
+    } -cleanup {
+        twapi::free_icon $h
+        twapi::free_library $reslibh
+    } -result HICON
+
+    test load_icon_from_module-6.0 {
+        Load icon from file with -width and -height
+    } -setup {
+        set reslibh [twapi::load_library $rctest_dll -datafile]
+    } -body {
+        set h [twapi::load_icon_from_module $reslibh 102 -width 16 -height 16]
+        twapi::Twapi_PtrType $h
+    } -cleanup {
+        twapi::free_icon $h
+        twapi::free_library $reslibh
+    } -result HICON
+
+
+    ################################################################
+
+    test load_bitmap_from_system-1.0 {
+        Load bitmap from system
+    } -body {
+        set h [twapi::load_bitmap_from_system close]
+        twapi::Twapi_PtrType $h
+    } -result HGDIOBJ_SHARED
+
+    test load_bitmap_from_system-2.0 {
+        Load bitmap from system with -createdibsection false
+    } -body {
+        set h [twapi::load_bitmap_from_system uparrow -createdibsection false]
+        twapi::Twapi_PtrType $h
+    } -result HGDIOBJ_SHARED
+
+    test load_bitmap_from_system-2.1 {
+        Load bitmap from system with -createdibsection true
+    } -body {
+        set h [twapi::load_bitmap_from_system dnarrow -createdibsection 1]
+        twapi::Twapi_PtrType $h
+    } -result HGDIOBJ_SHARED
+
+    test load_bitmap_from_system-3.0 {
+        Load bitmap from system with -loadtransparent false
+    } -body {
+        set h [twapi::load_bitmap_from_system rgarrow -loadtransparent 0]
+        twapi::Twapi_PtrType $h
+    } -result HGDIOBJ_SHARED
+
+    test load_bitmap_from_system-3.1 {
+        Load bitmap from system with -loadtransparent true
+    } -body {
+        set h [twapi::load_bitmap_from_system lfarrow -loadtransparent true]
+        twapi::Twapi_PtrType $h
+    } -result HGDIOBJ_SHARED
+
+    test load_bitmap_from_system-4.0 {
+        Load bitmap from system with -monochrome false
+    } -body {
+        set h [twapi::load_bitmap_from_system reduce -monochrome 0]
+        twapi::Twapi_PtrType $h
+    } -result HGDIOBJ_SHARED
+
+    test load_bitmap_from_system-4.1 {
+        Load bitmap from system with -monochrome true
+    } -body {
+        set h [twapi::load_bitmap_from_system zoom -monochrome true]
+        twapi::Twapi_PtrType $h
+    } -result HGDIOBJ_SHARED
+
+    test load_bitmap_from_system-5.0 {
+        Load bitmap from system with -vgacolor false
+    } -body {
+        set h [twapi::load_bitmap_from_system restore -vgacolor false]
+        twapi::Twapi_PtrType $h
+    } -result HGDIOBJ_SHARED
+
+    test load_bitmap_from_system-5.1 {
+        Load bitmap from system with -vgacolor true
+    } -body {
+        set h [twapi::load_bitmap_from_system reduced -vgacolor 1]
+        twapi::Twapi_PtrType $h
+    } -result HGDIOBJ_SHARED
+   
+    # Check the remaining bitmap ids not used in above tests
+    set testnum 5
+    foreach builtin {
+        zoomd restored uparrowd dnarrowd rgarrowd lfarrowd mnarrow
+        combo uparrowi dnarrowi rgarrowi lfarrowi size
+        btsize
+        check checkboxes btncorners
+    } {
+        test load_bitmap_from_system-[incr testnum].0 {
+            Load bitmap from system
+        } -body "twapi::Twapi_PtrType \[twapi::load_bitmap_from_system $builtin\]"  -result HGDIOBJ_SHARED
+    }
+
+    ################################################################
+
+    test load_cursor_from_system-1.0 {
+        Load cursor from system
+    } -body {
+        twapi::Twapi_PtrType [twapi::load_cursor_from_system normal]
+    } -result HCURSOR_SHARED
+
+    test load_cursor_from_system-2.0 {
+        Load cursor from system with -defaultsize false
+    } -body {
+        twapi::Twapi_PtrType [twapi::load_cursor_from_system ibeam -defaultsize 0]
+    } -result HCURSOR_SHARED
+
+    test load_cursor_from_system-2.1 {
+        Load cursor from system with -defaultsize true
+    } -body {
+        twapi::Twapi_PtrType [twapi::load_cursor_from_system wait -defaultsize true]
+    } -result HCURSOR_SHARED
+
+    test load_cursor_from_system-3.0 {
+        Load cursor from system with -loadtransparent false
+    } -body {
+        twapi::Twapi_PtrType [twapi::load_cursor_from_system  cross -loadtransparent 0]
+    } -result HCURSOR_SHARED
+
+    test load_cursor_from_system-3.1 {
+        Load cursor from system with -loadtransparent true
+    } -body {
+        twapi::Twapi_PtrType [twapi::load_cursor_from_system up -loadtransparent true]
+    } -result HCURSOR_SHARED
+
+    test load_cursor_from_system-4.0 {
+        Load cursor from system with -monochrome false
+    } -body {
+        twapi::Twapi_PtrType [twapi::load_cursor_from_system sizenwse -monochrome 0]
+    } -result HCURSOR_SHARED
+
+    test load_cursor_from_system-4.1 {
+        Load cursor from system with -monochrome true
+    } -body {
+        twapi::Twapi_PtrType [twapi::load_cursor_from_system sizenesw -monochrome true]
+    } -result HCURSOR_SHARED
+
+    test load_cursor_from_system-5.0 {
+        Load cursor from system with -vgacolor false
+    } -body {
+        twapi::Twapi_PtrType [twapi::load_cursor_from_system sizewe -vgacolor false]
+    } -result HCURSOR_SHARED
+
+    test load_cursor_from_system-5.1 {
+        Load cursor from system with -vgacolor true
+    } -body {
+        twapi::Twapi_PtrType [twapi::load_cursor_from_system sizens -vgacolor 1]
+    } -result HCURSOR_SHARED
+
+    test load_cursor_from_system-6.0 {
+        Load cursor from system with -width and -height
+    } -body {
+        twapi::Twapi_PtrType [twapi::load_cursor_from_system no -width 16 -height 16]
+    } -result HCURSOR_SHARED
+
+    test load_cursor_from_system-7.0 {
+        Load cursor from system
+    } -body {
+        twapi::Twapi_PtrType [twapi::load_cursor_from_system hand]
+    } -result HCURSOR_SHARED
+
+    test load_cursor_from_system-8.0 {
+        Load cursor from system
+    } -body {
+        twapi::Twapi_PtrType [twapi::load_cursor_from_system appstarting]
+    } -result HCURSOR_SHARED
+
+    ################################################################
+
+    test load_icon_from_system-1.0 {
+        Load icon from system
+    } -body {
+        twapi::Twapi_PtrType [twapi::load_icon_from_system sample]
+    } -result HICON_SHARED
+
+    test load_icon_from_system-2.0 {
+        Load icon from system with -defaultsize false
+    } -body {
+        twapi::Twapi_PtrType [twapi::load_icon_from_system hand -defaultsize 0]
+    } -result HICON_SHARED
+
+    test load_icon_from_system-2.1 {
+        Load icon from system with -defaultsize true
+    } -body {
+        twapi::Twapi_PtrType [twapi::load_icon_from_system ques -defaultsize true]
+    } -result HICON_SHARED
+
+    test load_icon_from_system-3.0 {
+        Load icon from system with -loadtransparent false
+    } -body {
+        twapi::Twapi_PtrType [twapi::load_icon_from_system bang -loadtransparent 0]
+    } -result HICON_SHARED
+
+    test load_icon_from_system-3.1 {
+        Load icon from system with -loadtransparent true
+    } -body {
+        twapi::Twapi_PtrType [twapi::load_icon_from_system note -loadtransparent true]
+    } -result HICON_SHARED
+
+    test load_icon_from_system-4.0 {
+        Load icon from system with -monochrome false
+    } -body {
+        twapi::Twapi_PtrType [twapi::load_icon_from_system winlogo -monochrome 0]
+    } -result HICON_SHARED
+
+    test load_icon_from_system-4.1 {
+        Load icon from system with -monochrome true
+    } -body {
+        twapi::Twapi_PtrType [twapi::load_icon_from_system warning -monochrome true]
+    } -result HICON_SHARED
+
+    test load_icon_from_system-5.0 {
+        Load icon from system with -vgacolor false
+    } -body {
+        twapi::Twapi_PtrType [twapi::load_icon_from_system error -vgacolor false]
+    } -result HICON_SHARED
+
+    test load_icon_from_system-5.1 {
+        Load icon from system with -vgacolor true
+    } -body {
+        twapi::Twapi_PtrType [twapi::load_icon_from_system information -vgacolor 1]
+    } -result HICON_SHARED
+
+    test load_icon_from_system-6.0 {
+        Load icon from system with -width and -height
+    } -constraints {
+        vista
+    } -body {
+        twapi::Twapi_PtrType [twapi::load_icon_from_system shield -width 16 -height 16]
+    } -result HICON_SHARED
+
+    ################################################################
+
+    test extract_resources-1.0 {
+        Extract all resources
+    } -setup {
+        set reslibh [twapi::load_library $rctest_dll -datafile]
+    } -body {
+        twapi::extract_resources $reslibh
+    } -cleanup {
+        twapi::free_library $reslibh
+    } -result {1 {6 {1033 {}} 7 {1033 {}}} 2 {106 {1033 {}}} 3 {1 {1033 {}} 2 {1033 {}} 3 {1033 {}} 4 {1033 {}} 5 {1033 {}}} 4 {110 {1033 {}}} 5 {101 {1033 {}} 106 {1033 {}} 109 {1033 {}}} 6 {1 {1033 {}} 2 {1033 {}} 3 {1033 {}} 4 {1033 {}} 69 {1033 {}} 3633 {1033 {}}} 9 {101 {1033 {}}} 12 {103 {1033 {}} 104 {1033 {}}} 14 {{"ICON3"} {1033 {}} 102 {1033 {}} 107 {1033 {}}} 23 {105 {1033 {}}}}
+
+    test extract_resources-2.0 {
+        Extract all resources with data
+    } -setup {
+        set reslibh [twapi::load_library $rctest_dll -datafile]
+    } -body {
+        set respaths [dict create]
+        dict for {restype restypevalues} [twapi::extract_resources $reslibh true] {
+            dict for {resname resnamevalues} $restypevalues {
+                dict for {reslang value} $resnamevalues {
+                    dict set respaths $restype $resname $reslang {}
+                    if {$value ne [twapi::read_resource $reslibh $restype $resname $reslang]} {
+                        error "Mismatch in resource <$restype, $resname, $reslang>"
+                    }
+                }                                      
+            }
+        }
+        set respaths
+    } -cleanup {
+        twapi::free_library $reslibh
+    } -result {1 {6 {1033 {}} 7 {1033 {}}} 2 {106 {1033 {}}} 3 {1 {1033 {}} 2 {1033 {}} 3 {1033 {}} 4 {1033 {}} 5 {1033 {}}} 4 {110 {1033 {}}} 5 {101 {1033 {}} 106 {1033 {}} 109 {1033 {}}} 6 {1 {1033 {}} 2 {1033 {}} 3 {1033 {}} 4 {1033 {}} 69 {1033 {}} 3633 {1033 {}}} 9 {101 {1033 {}}} 12 {103 {1033 {}} 104 {1033 {}}} 14 {{"ICON3"} {1033 {}} 102 {1033 {}} 107 {1033 {}}} 23 {105 {1033 {}}}}
+
+
+    ################################################################
+
+    #
+    # Clean up
+    ::tcltest::cleanupTests
+}
+
+namespace delete ::twapi::resource::test
