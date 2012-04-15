@@ -1,0 +1,11 @@
+[comment {-*- tcl -*- doctools manpage}]
+[manpage_begin "Packages" n ""]
+[copyright "2011 Ashok P. Nadkarni"]
+[moddesc "TWAPI packages"]
+[titledesc "Tcl Windows API package description"]
+[description]
+
+The entire TWAPI functionality is available through a single package: [cmd twapi]. The [cmd twapi_desktop] and [cmd twapi_server] packages in earlier versions
+are no longer available.
+
+[manpage_end]
