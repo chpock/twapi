@@ -1,0 +1,44 @@
+#
+# Copyright (c) 2010-2012, Ashok P. Nadkarni
+# All rights reserved.
+#
+# See the file LICENSE for license
+
+# This file contains tests for PDH related commands.
+# Most of these are tested indirectly through other modules. This
+# only contains a small number of tests not covered there.
+
+package require tcltest
+eval tcltest::configure $argv
+
+source [file join [file dirname [info script]] testutil.tcl]
+load_twapi_package twapi_pdh
+
+#
+# Set up system-specific constants that are used to match test results
+namespace eval twapi::pdh::test {
+    namespace import ::tcltest::test
+
+    ################################################################
+
+    test locale_workaround-1.0 {
+        Verify that we have a workaround for the Microsoft PDH locale changing
+    } -constraints {
+        nt
+    } -body {
+        # Force loading of twapi_pdh
+        catch {twapi::connect_perf}
+        # Verify expr works and PDH did not change the locale
+        # (Needs to be tested on non-English systems where decimal separator is not .)
+        expr {1.0*1.0}
+    } -result 1.0
+    
+
+    ################################################################
+
+    #
+    # Clean up
+    ::tcltest::cleanupTests
+}
+
+namespace delete ::twapi::pdh::test
