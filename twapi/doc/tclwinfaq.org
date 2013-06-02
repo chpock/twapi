@@ -1,0 +1,904 @@
+#+STYLE: <style type='text/css'>html { font-family: sans-serif; width:750px; margin-left: 10px;} </style>
+#+STYLE: <style type='text/css'>div#text-table-of-contents ul {padding-left: 1em; list-style-type: none; line-height:1.3em}</style>
+#+STYLE: <style type='text/css'>div#text-table-of-contents > ul {padding-left: 0em;}</style>
+#+STYLE: <style type='text/css'>div#text-table-of-contents > ul > li {padding-top: 0.5em; line-height: 1.5em;}</style>
+#+TITLE:     Tcl on Windows FAQ (2013-03-26)
+#+AUTHOR:    Tcl Community
+#+DATE:      2012-04-14 Sat
+#+DESCRIPTION: Frequently Asked Questions about Tcl on Windows
+#+KEYWORDS: 
+#+LANGUAGE:  en
+#+OPTIONS:   H:3 num:t toc:t \n:nil @:t ::t |:t ^:{} -:t f:t *:t <:t author:nil
+#+OPTIONS:   TeX:t LaTeX:nil skip:nil d:nil todo:t pri:nil tags:not-in-toc
+#+INFOJS_OPT: view:nil toc:nil ltoc:t mouse:underline buttons:0 path:http://orgmode.org/org-info.js
+#+EXPORT_SELECT_TAGS: export
+#+EXPORT_EXCLUDE_TAGS: noexport
+#+LINK_UP:   
+#+LINK_HOME: 
+
+#+LINK: twapiman http://twapi.magicsplat.com/
+#+LINK: wiki  http://wiki.tcl.tk/
+#+LINK: tclman http://www.tcl.tk/man/tcl8.6/
+
+* About this FAQ
+   This FAQ is targeted towards using Tcl on Windows. Specifically,
+   it addresses recent releases of Tcl (8.5, 8.6) on 
+   Windows 2000 or later. Some examples will not work with older
+   versions of Tcl.
+
+   The FAQ does not address general Tcl platform-independent features.
+   Nor does it address questions related to the graphical toolkit [[#Tk][Tk]].
+
+* About Tcl
+** What is Tcl and why should I learn it?
+   Tcl is a high-level dynamic language that runs on a wide variety of platforms,
+   from mainstream operating systems like Unix/Linux, Windows and MacOS 
+   to embedded systesm like Cisco routers. Code written on one platform
+   will run practically unchanged on another. Tcl's simple but powerful
+   and expressive nature make it suitable for applications ranging from
+   customized systems administration utilities to standalone desktop applications
+   to scalable, distributed servers.
+
+** What is Tk ?
+   :PROPERTIES:
+   :CUSTOM_ID: tk
+   :END:
+   Tk is a toolkit for building cross-platform graphical user interfaces.
+   Although bindings exist for other languages such as Perl and Python,
+   it was originally built as a complement to Tcl and has the tightest
+   binding to that language. Hence, the two are most commonly refered
+   together as Tcl/Tk.
+   This FAQ focuses only on Tcl and does NOT address Tk-related questions.
+
+** What Windows platforms does Tcl support ?
+   The current release of Tcl, Version 8.6, requires Windows XP
+   or later. The previous release, version 8.5, also supports Windows
+   Windows 2000. Earlier versions of Windows, Windows NT 4.0
+   and the Windows 98 series, require Tcl 8.4 and are
+   not covered by this FAQ. 
+
+** Does Tcl support 64-bit Windows?
+   Yes. There are separate 32- and 64-bit builds of Tcl. Of course, the
+   32-bit build will also work on 64-bit Windows as a WoW64 process.
+
+** Why should I use Tcl instead of VBScript or PowerShell?
+   There are several reasons why you might want to use Tcl instead of
+   PowerShell or VBScript for scripting tasks on Windows. First, Tcl
+   deployment is simple, with the option of a single executable
+   distribution that includes your scripts and with no external
+   dependencies. This allows deployment even to systems such as Windows
+   2008 Server Core which did not support PowerShell due to its
+   dependence on the .NET framework.  Second, because of its use of
+   native Windows interfaces, Tcl is lightweight and efficient in use of
+   system resources including CPU, memory and disk. Third, generic
+   scripts such as for XML processing, will run on non-Windows platforms
+   without any modifications.
+
+** Why should I use Tcl instead of C#/C++/VB.Net
+   Simply put, it's all about minding your P's and Q's:
+   - Productivity - Tcl's dynamic nature, expressiveness and
+     high level constructs greatly increase programming productivity
+     with shorter development cycles and greater robustness.
+   - Portability - large portions of your code base, and even entire
+     applications are portable to other platforms with minimal
+     effort.
+   - Quality - By freeing programmers from low level details Tcl allows
+     them to focus on application logic and architecture. It facilitates
+     incremental development where test case generation fits naturally
+     with writing code.
+
+** When should I not use Tcl on Windows?
+   There are a few types of applications for which Tcl is not an ideal fit.
+   In particular, applications with sophisticated graphics or printing
+   needs are not good candidates for Tcl.
+   Nevertheless, note Tcl can still be used productively in such
+   applications as the "glue" language that drives and automates the
+   core application engine. For example, Tcl is the de facto standard
+   for scripting in the commercial CAD world even though the core applications
+   are in C++.
+
+** How is Tcl licensed? Can I use it in commercial applications?
+   Tcl is covered under the very liberal open source BSD license.
+   This means Tcl and its associated libraries can be used in all applications,
+   including commercial ones.
+** Where can I find documentation for Tcl?
+   The reference documentation for all Tcl versions can be downloaded or
+   browsed on-line at http://www.tcl.tk/man. The [[#activestatedistro][ActiveState distribution]] also
+   contains a Windows Help CHM file that includes not only the core 
+   documentation but also documentation for various extensions and libraries.
+   A standalone CHM help file, with similar content, is available from
+   the [[#twapi][TWAPI]] download area.
+
+** Is there a Tcl tutorial?
+   See the [[http://www.tcl.tk/man/tcl/tutorial/tcltutorial.html][online Tcl tutorial]]. In addition, the [[http://wiki.tcl.tk][Tcler's Wiki]] provides 
+   tutorials, explanations
+   and sample code in all areas. It is also an excellent jump point
+   to the various Tcl resources on the net.
+
+** Where can I get help on Tcl?
+   You can get questions answered on the comp.lang.tcl newsgroup or the
+   #tcl channel on irc.freenode.net. Commercial support is available from
+   [[http://www.activestate.com/activetcl][ActiveState]].
+
+* Installing Tcl
+** What Tcl distributions are available for Windows?
+   There are several freely downloadable binary distributions of Tcl available:
+   - The most commonly used distribution for Tcl is from
+     [[http://www.activestate.com/activetcl][ActiveState]] which provides both free and commercially supported
+     editions of their Tcl package for multiple platforms. These
+     distributions include libraries and extensions in addition to
+     the Tcl core.
+   - The [[http://tcl.sourceforge.net][Tcl SourceForge download area]] contains Tcl distributions for
+     multiple platforms but does not include extensions and libraries.
+   - The [[http://kitcreator.rkeene.org][KitCreator]] site provides customisable
+     Tcl distributions for download which can optionally include
+     other libraries and extensions.
+   - Builds of daily snapshots are available from [[http://www.patthoyts.tk/tclkit/win32-ix86/daily/][Pat Thoyt's site]].
+     These are single file executables.
+
+** Are there any single-executable distributions of Tcl?
+   There are several distributions of Tcl that consist of a single
+   executable file. These distributions also support binding your
+   applications scripts within the executable so that your entire
+   application itself can be distributed as a single executable.
+   The most commonly used ones are [[#tclkit][=tclkit=]] and [[#freewrap][=freewrap=]]. You
+   can also create your own versions from the [[http://kitcreator.rkeene.org][KitCreator]] site.
+
+   Note these distributions are cross-platform and not limited to Windows.
+
+* General Usage
+** What are =tclsh= and =wish=?
+   Windows distinguishes between console mode and graphical interface programs.
+   Tcl distributions correspondingly come with two different programs,
+   =tclsh.exe= and =wish.exe=. The former is used for scripts that run in
+   console mode and the latter for applications with a graphical user interface,
+   generally based on [[#tk][Tk]].
+
+   Depending on the actual Tcl distribution being used, the executables
+   may be named differently, for example =tclsh86t.exe= and =wish86t.exe=.
+
+** How do I run Tcl in interactive mode?
+   To run the Tcl interpreter, so that you can interactively invoke Tcl
+   commands, simply type in the name of the appropriate executable.
+   This will display a Tcl shell prompt where you can type in commands.
+#+BEGIN_SRC tcl -n
+  c:\> tclsh
+  % puts "Hello world"
+  Hello world
+  % exit
+  c:>
+#+END_SRC
+
+** How do I run a Tcl script from the command line?
+   To run a console script, invoke the =tclsh.exe= program, passing
+   it the path to the script file. Any additional arguments on the command
+   line are passed as a list to the script in the =argv= global variable.
+#+BEGIN_SRC tcl -n
+  # File printargs.tcl
+  foreach arg $::argv {puts $arg} 
+#+END_SRC
+  We can invoke this script from the command line:
+#+BEGIN_SRC tcl -n
+  c:\> tclsh printargs.tcl first "second arg"
+  first
+  second arg
+  c:\>
+#+END_src
+
+** How can I associate a Tcl script with the Tcl interpreter application?
+   Windows can associate a file with an application so that typing the
+   name of the file will result in the application being invoked.
+   During its install, the
+   [[#activestatedistro][ActiveState distribution]] gives the user the option to associate
+   files ending in =.tcl= with the =wish= graphical Tcl shell. If you
+   are not using this distribution, or you want to associate the =.tcl=
+   extension with =tclsh= instead, you can change the association from
+   the =File Types= tab in the =Folder Options= dialog in Explorer.
+
+   In addition, if you want to run the script from the command line simply
+   by typing its name, add the extension to the =PATHEXT= environment
+   variable.
+
+   You may wish to associate separate extensions, for example =.tcl= and
+   =.tk=, depending on whether you want the script invoked with =tclsh=
+   or =wish=.
+
+** How can I invoke a Tcl script from Explorer?
+   In order to run a Tcl script by double-clicking the script file, the file
+   type must be associated with the Tcl shell. See the previous entry
+   in this FAQ.
+
+** How can I embed a Tcl script in a batch file?
+   As an alternative to making =.tcl= files directly executable, you may
+   prefer to make scripts executable by embedding them in batch files.
+   For example, assume =printargs.bat= is somewhere in your =PATH= and
+   contains the following:
+
+#+BEGIN_SRC tcl -n
+  ::if no {
+  @tclsh "%~f0" %*
+  @goto :eof 
+  }
+  # Tcl code start
+  
+  foreach arg $argv { puts $arg }
+  # Tcl code end \
+  :eof
+#+END_SRC
+
+  Invoking the file:
+
+#+BEGIN_SRC tcl -n
+  C:\>printargs first "second arg"
+  first
+  second arg
+#+END_SRC
+
+   See an explanation of the above and more sophisticated versions
+   in the [[http://wiki.tcl.tk/2455][Tcl wiki]].
+
+** How can I have Tcl always execute a certain set of commands on starting?
+   On startup, =tclsh.exe= reads and executes commands in the file
+   =tclshrc.tl= in the user's home directory. The user's home directory
+   is given by the environment variable =USERPROFILE= or can be displayed
+   with the Tcl command
+: % file normalize ~
+
+** When should I use a Tcl extension versus an external program?
+Some tasks can be accomplished from Tcl by invoking external programs or
+through the use of a Tcl extension ([[#killprocess][example]]). If you are writing a one-off
+script with limited use or the command is rarely invoked, using an
+external program might be sufficient. In other cases, use of an extension
+is likely to be beneficial. It is generally much faster and also protects
+against the external program not being available or installed
+on the target system (this is true even for Windows components)
+and differences arising from localization.
+* General Windows programming
+** How can I access the Windows registry?
+   Tcl provides the [[http://www.tcl.tk/man/tcl8.5/TclCmd/registry.htm][=registry=]] command for doing various operations on
+   the Windows registry. You will need to load the =registry= package
+   first:
+
+#+BEGIN_SRC tcl -n
+   % package require registry
+   % registry get HKEY_CURRENT_USER\\Environment PATH
+   c:\bin;c:\tcl\tcl86\bin;c:\msys\bin
+#+END_SRC
+
+** How can I get system information?
+   The Tcl global array =tcl_platform= provides basic information about
+   the system such as the operating system, version number etc. Additional
+   information is provided in the Windows environment variables which
+   can be accessed via the global =env= array. For more extensive
+   details, use the =osinfo= module in the [[#twapi][TWAPI]] extension.
+
+** How can I print from a script?
+   The [[#tkprint][TkPrint]] or [[#gdi][Printer]] extensions may be used for printing under Windows.
+** How can I write a Windows service using Tcl?
+   There are several options for running a Tcl script as a Windows
+   service:
+   - The [[#twapi][TWAPI]] extension's =run_as_service= command.
+     See the [[http://wiki.tcl.tk/20993][network echo service sample]] on the Tcl wiki.
+   - ActiveState's [[http://www.activestate.com/tcl][Tcl Development Kit]] provides a tool to wrap a Tcl script
+     as a Windows service
+   - Generic programs such as [[http://www.firedaemon.com/][Firedaemon]] and [[http://www.sw4me.com/winserv][winserv]] can also be used
+     to run a Tcl script as a Windows service by spawning =tclsh.exe=
+     as a child process.
+* Processes
+** How can I start a new process?
+   :PROPERTIES:
+   :CUSTOM_ID: exec
+   :END:
+   Tcl provides the [[tclman:exec.htm][=exec=]] command for starting new processes. The command
+   supports pipes with multiple subprocesses, I/O redirection and background
+   processes. The following commands all start a copy of notepad:
+#+BEGIN_SRC dos -n
+   % exec notepad.exe &
+   % exec c:/windows/system32/notepad.exe &
+   % exec {*}[auto_execok notepad] &
+#+END_SRC
+   Line 1 assumes =notepad.exe= is in a directory in your =PATH= environment
+   variable. Line 2 explicitly specifies the path to the program. Line 3
+   makes use of the  [[tclman:library.htm][=auto_execok=]]  command which returns 
+   the full command line required for invocation filling
+   in the path, extension if missing as well as checking for =cmd.exe=
+   built-in commands.
+#+BEGIN_SRC dos -n
+   % auto_execok notepad
+   C:/WINDOWS/system32/notepad.EXE
+   % auto_execok dir
+   C:/WINDOWS/system32/cmd.exe /c dir
+#+END_SRC
+   Line 1 returns the path to =notepad.exe=. Line 3 returns the
+   command line to invoke an internal =cmd.exe= command.
+
+   For additional control over the child process, such as its display
+   properties, security attributes, priority etc., use the
+   [[twapiman:process.html#create_process][=create_process=]] command from the [[#twapi][TWAPI]] extension.
+
+** How can I read from and write to a child process?
+   Use the Tcl =open= command to open a pipe by prefixing the child
+   process command line with a =|= character. Then read and write
+   using the standard Tcl I/O commands =puts=. =gets=, =read= etc.
+#+BEGIN_SRC tcl -n
+   % set fd [open "| cmd.exe /c dir"]
+   file94e0d8
+   % while {![eof $fd]} {puts [gets $fd]}
+   % close $fd
+#+END_SRC
+** How can I launch a document or URL?
+   To start up an application associated with a file or URL,
+   invoke the Windows =cmd.exe= internal
+   =start= command. For example,
+   : % exec {*}[auto_execok start] "" myfile.doc &
+   : % exec {*}[auto_execok start] "" http://www.google.com &
+
+   Alternatively, see the [[#shellexecute][next entry]].
+
+** How can I invoke an action, like print, on a document?
+   :PROPERTIES:
+   :CUSTOM_ID: shellexecute
+   :END:
+   The Windows Explorer Shell associates certain actions that can
+   be carried out on a document based on its file type. These actions,
+   such as =Open=, =Edit=, =Print= can be invoked from the right-click
+   menu in Explorer. To invoke the action using Tcl, use the
+   [[twapiman:shell.html#shell_execute][=shell_execute=]]
+   command from the [[#twapi][TWAPI]] extension.
+
+   The following will use the default action =Open= to start
+   editing the file with Microsoft Word.
+   : twapi::shell_execute -path sample.doc
+
+   To print the file:
+   : twapi::shell_execute -path sample.doc -verb print
+
+   To compose an email message:
+   : twapi::shell_execute -path mailto:someone@somewhere.com
+
+** How can I start a privileged process under UAC?
+   Windows Vista and later versions implement User Account Control (UAC)
+   under which even processes belonging to privileged accounts run with
+   reduced privileges unless explicitly elevated by the user.
+   To start a process in elevated mode, use the 
+   =shell_execute= command from the [[#twapi][TWAPI]] extension with the =runas= action.
+: twapi::shell_execute -verb runas -path services.msc
+
+** How can I terminate a process?
+   :PROPERTIES:
+   :CUSTOM_ID: killprocess
+   :END:
+   The  [[#twapi][TWAPI]] extension provides the =end_process= command for this purpose.
+: twapi::end_process 1234
+: foreach pid [twapi::get_process_ids -name notepad.exe] {twapi::end_process $pid}
+
+   As an alternative, you can invoke the Windows command line program =taskkill.exe= 
+   using Tcl's [[#exec][=exec=]] command to terminate a process by its PID or name.
+#+BEGIN_SRC tcl -n
+   exec {*}[auto_execok taskkill] /PID 1234
+   exec {*}[auto_execok taskkill] /IM notepad.exe
+#+END_SRC
+
+* Files and Disks
+** What file path separator should I in Tcl?
+   Like the Windows kernel (as opposed to the Windows DOS command prompt),
+   Tcl will accept either =/= or =\= as a directory separator in a file path.
+   However, like in other languages such as C, =\= is also used in Tcl syntax
+   to indicate an escape sequence. Hence when used in a literal it needs
+   to be doubled:
+   : % file exists c:\\windows\\system32
+   In some cases, such as executing an external program that expects
+   =\= as the directory separator, you can use the
+   [[tclman:file][=file nativename=]] command to convert a path:
+   : % file nativename c:/windows/system32
+   : c:\windows\system32
+** How can I get a list of drives in the system?
+   Use Tcl's =file volumes= command.
+: % file volumes
+: C:/ D:/
+** How can I access files on remote shares?
+   Tcl understands UNC names of the form =\\SERVER\SHARE\some\file=
+   so the standard Tcl I/O commands can be used to open and access
+   files on remote shares.
+** How can I monitor changes to the file system?
+   You can either use the Tcl [[tclman:glob.htm][glob]] command to read a directory and poll
+   for changes or use the [[#twapi][TWAPI]] extension as shown in the session below.
+   Both methods have their advantages and disadvantages. Polling can be
+   expensive as the entire directory tree has to be read and compared.
+   The [[#twapi][TWAPI]] method uses Windows notification as and when changes
+   occur and has filtering options. On the other hand, notifications
+   are not guaranteed to be delivered under load. Reliability is
+   particularly an issue with remote file systems. You may wish to
+   use a combination of the two methods depending on the application.
+
+   The sample below illustrates use of [[#twapi][TWAPI]]'s
+   [[twapiman:disk.html#begin_filesystem_monitor][=begin_filesystem_monitor=]] command:
+#+BEGIN_SRC tcl -n
+   % proc pargs args {puts [join $args ,]}
+   % set notifier [twapi::begin_filesystem_monitor C:/windows pargs -subtree true -write true -patterns {*.exe *.dll}]
+   % puts stderr "Type Ctrl-C to exit"
+   % vwait forever
+#+END_SRC
+   This command will print a line whenever an executable (=.exe= or =.dll=)
+   is written to anywhere under the Windows directory. The
+   [[tclman:vwait][=vwait=]] command is required in this small example as notifications
+   require the Tcl event loop to be running.
+** How can I get device notifications such as CD or pen drive insertion?
+   Use the [[#twapi][TWAPI]] extension as shown in the session below.
+   (IMPORTANT: The example assumes the Tcl event loop is running
+   which is required for receiving notifications.)
+
+#+BEGIN_SRC tcl -n
+   % proc pargs args {puts "Device event: [join $args ,]"}
+   % set notifier [twapi::start_device_notifier pargs -deviceinterface volume]
+   devnotifier#2
+   Device event: devnotifier#2,devnodes_changed
+   Device event: devnotifier#2,devnodes_changed
+   Device event: devnotifier#2,devicearrival,volume,E:,
+   Device event: devnotifier#2,devnodes_changed
+   Device event: devnotifier#2,deviceremovecomplete,volume,E:,
+   Device event: devnotifier#2,devnodes_changed
+   Device event: devnotifier#2,deviceremovecomplete,volume,D:,mediachange
+   Device event: devnotifier#2,devicearrival,volume,D:,mediachange
+   % ::twapi::stop_device_notifier $notifier
+#+END_SRC
+The =twapi::start_device_notifier= command on Line 2 is
+used to receive notifications
+of new volumes including USB pen drives, CD insertion and network shares.
+It invokes the supplied callback whenever a device volume change event
+occurs. The callback can filter for the events of interest based on
+the parameter supplied to it. For example, the above console session
+shows the insertion and removal of a USB pen drive (Lines 6 and 8)
+followed by the removal and insertion of a new CD (Lines 10 and 11).
+The =mediachange= attribute
+indicates that the event is only a change of CD media as opposed
+to a new CD-ROM device.
+* Windows Shell and Desktop
+** How can I create desktop shortcuts?
+   Use the =write_shortcut= command of the [[#twapi][TWAPI]] extension to create shortcuts.
+   The code below will create a shortcut on the desktop to =notepad.exe=.
+#+BEGIN_SRC tcl -n
+   % set path [file join [::twapi::get_shell_folder desktopdirectory]
+   % twapi::write_shortcut $path -path c:/windows/system32/notepad.exe
+#+END_SRC
+
+   For URL shortcuts, use the =write_url_shortcut= command from [[#twapi][TWAPI]].
+** How can I register a hotkey to invoke a script?
+   Windows hotkeys are a means to invoke actions in an application
+   irrespective of which application has the keyboard focus. Run the
+   example below in a DOS window. =Ctrl-Alt-F11= will start a copy
+   of =notepad= no matter which application has the foreground.
+   =Ctrl-Alt-F12= will stop the script.
+
+#+BEGIN_SRC tcl -n
+   set notepad_hk "Ctrl-Alt-F11"
+   set exit_hk    "Ctrl-Alt-F12"
+   puts "$notepad_hk will bring up a new copy of notepad"
+   puts "$exit_hk will unregister the hotkey and exit"
+
+   proc remove_hotkeys_and_exit {} {
+     twapi::unregister_hotkey $::notepad_hk_id
+     twapi::unregister_hotkey $::exit_hk_id
+     exit
+   }
+
+   set notepad_hk_id [twapi::register_hotkey Ctrl-Alt-F11 "exec notepad.exe &"]
+   set exit_hk_id    [twapi::register_hotkey Ctrl-Alt-F12 "remove_hotkeys_and_exit"]
+
+   # If running in tclsh, need a vwait to get eventloop running.
+   vwait forever
+#+END_SRC
+
+** How can I play audio files?
+The [[#snack][Snack]] extension is a complete and powerful cross-platform package for
+audio generation, playback, recording and analysis.
+See the [[http://www.speech.kth.se/snack/tutorial.html][Snack tutorial]] for examples.
+
+   For very basic needs, [[#twapi][TWAPI]] has a module that can play =WAV= files
+   and system sounds.
+: % twapi::play_sound c:/windows/media/chimes.wav
+
+** How can I copy and paste text to the clipboard?
+   If you are also using [[Tk]], use the =clipboard= command to read and
+   write the clipboard. If you are not using [[#tk][Tk]], or you need a format
+   that is not supported by the =clipboard= command, use the
+   =read_clipboard_text= and =write_clipboard_text= commands from [[#twapi][TWAPI]]
+   as shown in the next entry.
+** How can I copy and paste formatted or binary data ?
+   If data you are copying and pasting is not plain text, use the
+   =read_clipboard= and =write_clipboard= commands from [[#twapi][TWAPI]].
+   
+   The example session below gets HTML format data from the clipboard.
+#+BEGIN_SRC tcl -n
+   % twapi::open_clipboard (ref:openclip)
+   % set fmt [::twapi::register_clipboard_format "HTML Format"] (ref:getclipfmt)
+   49384
+   % twapi::read_clipboard $fmt
+   Version:0.9
+   StartHTML:00000158
+   EndHTML:00000260
+   ...lines not shown...
+   <html><body>
+   <!--StartFragment--><h2><a name="name">Tcl for Windows FAQ</a></h2><!--EndFragment-->
+   </body>
+   </html>
+   % twapi::read_clipboard_text
+   Tcl for Windows FAQ
+   % twapi::close_clipboard
+#+END_SRC
+   
+   Since HTML format is not a standard predefined clipboard format,
+   Line 2 of the example first gets the format identifier associated with
+   it. Note also the difference in results with the =read_clipboard=
+   command on Line 4 and the =read_clipboard_text= command on Line 13.
+* Interoperating with other applications
+** How can Tcl communicate with other applications using DDE?
+Tcl's built-in [[http://www.tcl.tk/man/tcl8.5/TclCmd/dde.htm][=dde package=]] allows Tcl scripts to act
+as a DDE client or server. However, DDE is a legacy technology
+and you should use COM interfaces instead wherever possible.
+** How can Tcl act as a COM client?
+   Several extensions support COM client access from Tcl.
+   - The [[#tcom][TCOM]] extension (32-bit only)
+   - The [[#optcl][Optcl]] extension (32-bit only)
+   - The =COM= module of the [[#twapi][TWAPI]] extension (32- and 64-bit)
+   See entries below for example usage.
+** How can Tcl act as a COM server?
+   Both the [[#tcom][TCOM]] extension and [[#optcl][Optcl]] extensions support implementation
+   of 32-bit COM servers in Tcl. There is currently no support for 64-bit
+   COM implementations but this is not strictly required as 64-bit
+   COM clients should still be able to invoke 32-bit COM servers.
+** How can I automate Internet Explorer with Tcl?
+   Automation of IE using COM is done by creating an instance using
+   the PROGID =InternetExplorer.Application= and calling methods
+   on it. You can find [[http://msdn.microsoft.com/en-us/library/aa752084%28v%3Dvs.85%29.aspx][documentation]] on MSDN. Here is an example
+   using [[#twapi][TWAPI]].
+#+BEGIN_SRC tcl -n
+   % set ie [twapi::comobj InternetExplorer.Application]
+   % $ie Visible true
+   % $ie Navigate http://www.tcl.tk
+   % $ie destroy
+#+END_SRC
+
+   For a [[#tcom][TCOM]] example, see the Wiki article at [[http://wiki.tcl.tk/29255]].
+** How can I integrate with Microsoft Office?
+   Automation or integration with Office can be accomplished using
+   any of the COM extensions mentioned above. For documentation
+   on the objects and methods exposed by Office, follow the links
+   on the [[http://msdn.microsoft.com/en-us/office/aa905496][Office developer page]].
+   
+   The [[#cawt][CAWT]] package provides a high level Tcl API over COM
+   to interact with Microsoft Office.
+
+** How can SQL Server be accessed from Tcl?
+* System Administration
+** How can I manage user accounts?
+The [[#twapi][TWAPI extension]] provides several commands related to user and group
+account management.
+#+BEGIN_SRC tcl -n
+: % twapi::new_user brad -password jennifer
+: % twapi::add_user_to_global_group angelina_fans brad
+: % twapi::set_user_password brad angelina 
+: % twapi::delete_user brad
+#+END_SRC
+
+You can also use the Active Directory interfaces for this purpose.
+
+** How can I access Active Directory with Tcl?
+   You can work with Active Directory via the =LDAP= module in the [[#tcllib][tcllib]] 
+   package library, or via the Active Directory Service Interface (ADSI)
+   through one of the Tcl COM extensions.
+
+TBD
+
+** How can I use WMI for system management?
+   Like ADSI, Windows Management Instrumentation (WMI) also provides a
+   scriptable interface via COM which is documented on the
+   [[http://msdn.microsoft.com/en-us/library/windows/desktop/aa393258%28v=vs.85%29.aspx][MSDN WMI Reference]] site.
+
+#+BEGIN_SRC tcl -n
+   % twapi::comobj_object "winmgmts://./root/cimv2"
+   % $wmi -with {
+       {ExecQuery "select * from Win32_NetworkAdapter"}
+     } -iterate net {
+       puts "[$net DeviceID]:[$net Description]"
+       $net destroy
+     }
+   1:Broadcom 440x 10/100 Integrated Controller
+   3:Intel(R) PRO/Wireless 2915ABG Network Connection
+   3:1394 Net Adapter
+   ...
+#+END_SRC
+   Additional examples are on the [[wiki:16660][TWAPI and WMI]] wiki page.
+** How can I remotely administer a Windows system?
+** How can I check if an application or hotfix is installed?
+   The Windows Installer database can be accessed using either WMI
+   or the Windows Installer COM object. Either method requires
+   one of the Tcl COM extensions. The example below checks for
+   a specific hotfix.
+#+BEGIN_SRC tcl -n
+   % set wmi [twapi::comobj_object "winmgmts://./root/cimv2"]
+   ::oo::Obj1233
+   % $wmi -with {
+       {ExecQuery "select * from Win32_QuickFixEngineering where HotFixID='KB2485663'"}
+     } -iterate app {
+       puts "[$app HotFixID]: [$app Description]"
+     }
+   KB2485663: Security Update for Windows XP (KB2485663)
+#+END_SRC
+** How can I read and write the event log?
+   Use the =Windows event log= module from the [[#twapi][TWAPI]] extension.
+   Here is an example to dump the Application event log to the console:
+#+BEGIN_SRC tcl -n
+   set hevl [twapi::eventlog_open -source Application]
+   # Make translation binary (lf), since records have embedded CR-LF,
+   # we will have to explicitly output CR-LF pairs
+   fconfigure stdout -translation lf
+   # Keep reading record until no more
+   while {[llength [set events [twapi::eventlog_read $hevl]]]} {
+     # print out each record
+     foreach eventrec $events {
+       array set event $eventrec
+       set time [clock format $event(-timewritten) -format "%x %X"]
+       set source   $event(-source)
+       set category [twapi::eventlog_format_category $eventrec -width -1]
+       set message  [twapi::eventlog_format_message $eventrec -width -1]
+       puts -nonewline "Time: $time\r\nSource: $source\r\nCategory: $category\r\n$message\r\n\r\n"
+     }
+   }
+  twapi::eventlog_close $hevl
+#+END_SRC
+
+* Interoperability with .Net
+** Is there a .NET version of Tcl?
+   [[#eagle][Eagle]] is an 
+   implementation of the Tcl scripting language for the .Net
+   Common Language Runtime (CLR). It is fully interoperable with 
+   other .Net languages and components.
+** How can I call .NET components from Tcl?
+   The [[#eagle][Garuda]] extension provides support for calling .Net components
+   from Tcl.
+
+* Networking and Communications
+** How can I communicate over the network?
+   The Tcl =socket= command creates a TCP/IP socket that can be used
+   with the standard Tcl I/O commands such as =read= and =puts=.
+** How can I communicate over named pipes and why would I want to?
+   Use [[#twapi][TWAPI]]'s =namedpipe_server= or =namedpipe_client= commands. These
+   create a Tcl channel that can be used with the standard Tcl I/O
+   commands. Named pipes are not advised over wide area network connections
+   for performance reasons. In local environments, their primary
+   benefit is that they provide an easy means for access control
+   and authentication.
+** How can I communicate over serial ports?
+   Tcl's =open= command can be used to open a serial port. For example,
+   : set fd [open "COM1:" r+]
+   For ports with number greater than 9, the UNC syntax must be used
+   instead, for example =\\.\COM10=.
+   : set fd [open "\\\\.\\COM10" r+]
+   Note the =\= is doubled in the command as it is the escape character
+   in Tcl syntax.
+
+   Once open, the standard Tcl I/O commands can be used to read and write
+   to the port.
+
+** How can I download a file or a Web page?
+   Tcl comes with a standard package =http= 
+#+BEGIN_SRC tcl -n
+   % package require http
+   2.8.3
+   % set tok [http::geturl http://www.google.com]
+   ::http::1
+   % puts "Status: [http::status $tok]"
+   Status: ok
+   % if {[http::status $tok] eq "ok"} { puts [http::data $tok] }
+   <HTML><HEAD><meta http-equiv="content-type" content="text/html;charset=utf-8">
+   ...more lines...
+   </HTML>
+   % http::cleanup $tok
+#+END_SRC
+
+   Packages for other protocols, like FTP, are available in [[#tcllib][tcllib]].
+
+   The [[#tclcurl][TclCurl]] extension provides an interface to the =libcurl= library
+   for many more protocols and options.
+** How can I get better networking performance?
+   Tcl's built in =socket= cross-platform implementation is
+   sufficient for the majority
+   of applications. In some cases where maximum performance and capacity
+   is desired, the
+   [[#iocpsock][iocpsock]] extension provides an interface based on Windows I/O completion
+   ports. Except for the socket creation command, the extension is fully
+   compatible with Tcl's I/O commands so it is even possible to choose
+   between it and the Tcl =socket= command at run time.
+* Building Tcl for Windows
+** Where can I get the Tcl source code?
+   The source code for the public releases of Tcl can be obtained
+   from the SourceForge Tcl download area at
+   [[http://sourceforge.net/projects/tcl/files/Tcl/]]. Extract the
+   zip file to wherever you want to do the build. Depending on the
+   tool chain you will use to build Tcl, it is advisable to not
+   have spaces in the path.
+
+   To get the current development snapshot of Tcl, you can check out sources
+   from the Tcl source repository at http://core.tcl.tk with a mirror
+   at http://mirror1.tcl.tk. It is maintained using a distributed revision control
+   system called =fossil=, binaries for which can be downloaded from
+   http://www.fossil-scm.org/download.html.
+   Detailed instructions for working with the Tcl repository
+   are at [[wiki:28126]].
+
+   *Note*: Do not place the sources in a path that has spaces in it.
+   Some of the compiler tools have problems with such paths.
+   If necessary, you can use the DOS =subst= command to assign a
+   drive letter to the path in order to hide the spaces.
+** Which compiler should I use to build Tcl ?
+
+   There are several tool chain options for building Tcl for Windows.
+   - Building with Visual C++ 6.0, as opposed to a newer Visual Studio version,
+     has the advantage that the associated runtime library =msvcrt.dll= is
+     pre-installed on every Windows system and does not have to be shipped
+     with your Tcl distribution. However, the compiler is not free.
+   - Building with the Microsoft SDK compilers requires that the
+     compiler runtimes be redistributed. But the compilers themselves
+     are free.
+   - Building with the open source MinGW tool chain based on =gcc=
+     also does not require redistributing runtime libraries as it
+     uses =msvcrt.dll=. Setup is a little more complicated.
+   - The compilers in newer versions of Visual Studio are identical
+     to the free SDK compilers so not much is to be gained from using
+     these commercial versions.
+
+** How do I build Tcl using Visual C++ 6.0?
+   :PROPERTIES:
+   :CUSTOM_ID: vc6
+   :END:
+   The file =win\makefile.vc= in the =win= directory is used to build
+   Tcl using Microsoft's compilers. The build process automatically
+   figures out what version of the compiler is being used.
+
+   Note Visual C++ 6.0 can only build the 32 bit version of Tcl.
+
+   There are several options that can be passed to =makefile.vc=. See
+   the top of the file for instructions. The sample below illustrates
+   most common usage.
+
+: "%ProgramFiles%\Microsoft Visual Studio\VC98\Bin\vcvars32.bat"
+: cd <TCL SOURCE ROOT DIRECTORY>\win
+: nmake -f makefile.vc INSTALLDIR=c:\tcl release
+: nmake -f makefile.vc INSTALLDIR=c:\tcl install
+
+   The last step is only necessary to install the binaries on the build
+   system or to create a distribution.
+
+   Note this only builds Tcl, and not the [[$tk][Tk]] library. If you want
+   to build the Tk library as well, you need the February 2003 version
+   of the SDK since Visual C++ 6.0 does not contain the required libraries
+   for theming support. Later versions of the SDK will not do as they are
+   not compatible with Visual C++ 6.0. The environment has to be
+   set up so that the SDK headers and libraries appear before the
+   Visual C++ ones. The following assumes the Tcl and Tk distributions
+   are side-by-side in directories called =tcl= and =tk=.
+
+#+BEGIN_SRC dos -n
+   "%ProgramFiles%\Microsoft Visual Studio\VC98\Bin\vcvars32.bat"
+   "c:\src\SDK-Feb-2003\setenv" /XP32 /RETAIL
+   cd <TCL SOURCE ROOT DIRECTORY>\win
+   nmake -f makefile.vc INSTALLDIR=c:\tcl release
+   nmake -f makefile.vc INSTALLDIR=c:\tcl install
+   nmake -f makefile.vc TCLDIR=..\..\tcl INSTALLDIR=c:\tcl release
+   nmake -f makefile.vc TCLDIR=..\..\tcl INSTALLDIR=c:\tcl install
+#+END_SRC 
+
+** How do I build Tcl using the free Windows SDK compiler?
+
+   The procedure for building using the Windows SDK compilers is similar
+   to that for Visual C++ 6.0. See that [[#vc6][entry]] for an overview.
+   The procedure below is specified
+   for Windows SDK 7.0 but will be similar for other SDK versions.
+
+   First, start a DOS command window to set up the build environment.
+   Note certain =cmd.exe= command extensions have to be enabled
+   for the SDK setup command file. Therefore, either start the command
+   shell from the =Start->All Programs->Microsoft Windows SDK v7.0->CMD shell=
+   menu or at the DOS command prompt, start a new shell by typing
+: C:\WINDOWS\system32\cmd.exe /E:ON /V:ON /T:0E
+
+   Then, at the command shell prompt, type the following to build 32-bit Tcl:
+: "%ProgramFiles%\Microsoft SDKs\Windows\v7.0\bin\setenv" /x86 /xp /Release
+
+   Alternatively, for 64-bit Tcl, set up for a 64-bit tool chain:
+: "%ProgramFiles%\Microsoft SDKs\Windows\v7.0\bin\setenv" /x64 /xp /Release
+
+   Then to build Tcl and Tk,
+#+BEGIN_SRC dos -n
+   cd <TCL SOURCE ROOT DIRECTORY>\win
+   nmake -f makefile.vc INSTALLDIR=c:\tcl release
+   nmake -f makefile.vc INSTALLDIR=c:\tcl install
+   nmake -f makefile.vc TCLDIR=..\..\tcl INSTALLDIR=c:\tcl release
+   nmake -f makefile.vc TCLDIR=..\..\tcl INSTALLDIR=c:\tcl install
+#+END_SRC 
+
+   This will build 32 or 64-bit Tcl depending on how the environment
+   was set up.
+
+   Note this procedure can be used for cross-building 64-bit Tcl from
+   a 32-bit system and vice versa.
+
+* Tcl packages and extensions
+** Tcllib
+   Tcllib is a collection of cross-platform Tcl
+   packages that cover a large number of areas from text processing,
+   mathematical algorithms, data structures, parsing, data structures, 
+   HTML and XML, networking, automata and more. It is available from
+   [[http://tcllib.sourceforge.net]].
+** Tcl for Windows API (TWAPI)
+   :PROPERTIES:
+   :CUSTOM_ID: twapi
+   :END:
+   The TWAPI extension includes modules that cover a broad cross-section
+   of the Windows API. It is available at http://twapi.sourceforge.net.
+** Snack Sound Toolkit
+   The Snack extension is a complete and powerful cross-platform package for
+   audio generation, playback, recording and analysis. It is available
+   at http://www.speech.kth.se/snack/. 
+** TCOM
+   :PROPERTIES:
+   :CUSTOM_ID: tcom
+   :END:
+   The TCOM extension provides support for both COM client and server
+   access from Tcl. It is available from [[http://www.vex.net/~cthuang/tcom/]].
+   Although stable, it is not under active development and there is no
+   64-bit version available.
+** Optcl
+   :PROPERTIES:
+   :CUSTOM_ID: optcl
+   :END:
+   The Optcl extension supports COM client and server access and also
+   support for hosting ActiveX controls. It is available at
+   http://www.patthoyts.tk/programming/optcl3010.zip. Like [[#tcom][TCOM]],
+   it is not under active development and no 64-bit version is available.
+** CAWT
+   :PROPERTIES:
+   :CUSTOM_ID: cawt
+   :END:
+   The CAWT (COM Automation With Tcl) package (formerly TcomOffice)
+   provides high level interfaces to
+   Microsoft Office (Excel, Word, Powerpoint), Internet Explorer, Matlab
+   and Google Earth.
+   It is available at http://www.posoft.de/html/extCawt.html.
+** iocpsock
+   The iocpsock extension provides a higher performance socket
+   interface using I/O completion ports. It is available from
+   http://sourceforge.net/projects/iocpsock.
+** TkPrint
+   :PROPERTIES:
+   :CUSTOM_ID: tkprint
+   :END:
+   The TkPrint extension provides commands for printing. It is available at
+   http://pages.videotron.com/cclients/files/tkprint1.1.html.
+** Gdi and Printer
+   :PROPERTIES:
+   :CUSTOM_ID: gdi
+   :END:
+   The Gdi and Printer extensions contain commands to interface to
+   the Win32 GDI and printing API's.
+** Eagle and Garuda
+   :PROPERTIES:
+   :CUSTOM_ID: eagle
+   :END:
+   Eagle is an implementation of Tcl for .Net. Garuda is a Tcl extension
+   that supports calling .Net components from Tcl.
+   Both are available from http://eagle.to.
+** TclCurl
+The TclCurl extension provides a Tcl-callable interface to the =libcurl=
+library for retrieving URL's using many different protocols. It is
+available from http://personal.telefonica.terra.es/web/getleft/tclcurl/index.html.
+** tclkit
+   Tclkit is a single-file Tcl executable that also supports binding
+   of application scripts within the executable to allow single-file
+   distribution of applications that can be run directly without
+   installing or unpacking. See [[wiki:52]].
+** freewrap
+   Freewrap is another single-executable distribution option. It is
+   available from http://freewrap.sourceforge.net.
+-----
