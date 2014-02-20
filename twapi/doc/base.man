@@ -1,0 +1,824 @@
+[comment {-*- tcl -*- doctools manpage}]
+[manpage_begin "Base module" n ""]
+[copyright "2004-2012 Ashok P. Nadkarni"]
+[moddesc "Base "]
+[titledesc "Base module used by all TWAPI components"]
+[require twapi_base]
+[description]
+[para]
+
+This module implements core commands required by all other TWAPI components
+and some functionality commonly required in all Windows application.
+
+[section "Package information"]
+[para]
+[uri \#get_version [cmd get_version]] returns TWAPI version information. 
+[uri #export_public_commands [cmd export_public_commands]] and
+[uri #import_commands [cmd import_commands]] enable export and import
+of commands defined in the TWAPI namespace.
+
+[section "Handles"]
+Several Win32 and TWAPI commands return operating system
+handles to various types of resources. The following commands allow
+manipulation and retrieval of information regarding handles.
+
+[para]
+The command [uri #create_file [cmd create_file]] returns a handle
+to a file or device.
+
+[para]
+The operating system associated with a Tcl channel can be retrieved
+using the [uri \#get_tcl_channel_handle [cmd get_tcl_channel_handle]] command.
+[para]
+The command [uri \#duplicate_handle [cmd duplicate_handle]]
+can be used to duplicate a handle,
+for example to pass down to a child process with different access
+rights.
+[para]
+The command [uri \#close_handle [cmd close_handle]]
+closes a operating system handle and
+frees resources associated with it.
+
+[para]
+An application can wait on a handle to be signalled using the
+[uri #wait_on_handle [cmd wait_on_handle]] command. The wait can be
+cancelled by calling
+[uri #cancel_wait_on_handle [cmd cancel_wait_on_handle]] command.
+
+[section "User Accounts"]
+The [package twapi_base] package includes some commonly used commands related to
+user accounts. 
+The command [uri \#lookup_account_name [cmd lookup_account_name]],
+[uri \#map_account_to_name [cmd map_account_to_name]],
+[uri \#lookup_account_sid [cmd lookup_account_sid]]
+and [uri \#map_account_to_sid [cmd map_account_to_sid]]
+translate between user and group account names and their SID's.
+The command [uri \#is_valid_sid_syntax [cmd is_valid_sid_syntax]]
+validates the syntax of an SID.
+
+[para]
+A more complete set of commands related to accounts, credentials and security
+are in the [uri users.html [package twapi_account]] and 
+[uri security.html [package twapi_security]] packages.
+
+[section "Password protection"]
+Commands [uri #read_credentials [cmd read_credentials]],
+[uri #credentials_dialog [cmd credentials_dialog]] and
+[uri #confirm_credentials [cmd confirm_credentials]]
+allow interfacing to the Windows credentials manager and getting
+user credentials such as passwords from the user.
+
+[para]
+Passwords and other sensitive data need to be protected in memory. For example,
+in case of error exceptions being logged to file, plaintext passwords should
+not be exposed. The above commands return passwords in an encrypted
+form.  TWAPI commands that
+deal with passwords expect them to be passed in this encrypted form.
+The [uri #conceal [cmd conceal]] and [uri #reveal [cmd reveal]]
+commands can also be used for this purpose. Note however using [cmd conceal]
+is not as secure as the argument passed to it is still in clear text.
+
+[section "Writing to the Windows event log"]
+Commands for writing to the Windows event log are included
+in the [package twapi_base] package. Documentation for these
+is however part of the
+[uri eventlog.html [package twapi_eventlog]] package.
+
+[section "Error generation and handling"]
+The [package twapi_base] module also provides various facilities 
+for generating and handing errors and Tcl exceptions.
+[para]
+TWAPI generates Tcl exceptions when errors are
+encountered. Information pertaining to the error is stored in Tcl
+global variables as with any standard Tcl errors. The global variable
+[cmd errorInfo] contains a traceback of the Tcl stack when the error
+occured. The global [cmd errorCode] contains a list with additional
+information about the error. The first element is the error class
+and determines the format of the rest of the list. This may take
+one of the following values:
+
+[list_begin opt]
+[opt_def [const TWAPI_WIN32]]
+This error class corresponds to Windows error codes. The second element of
+the list is the integer Windows error code. The [uri \#map_windows_error [cmd map_windows_error]] can be used to retrieve the correesponding text description.
+The third element is the
+corresponding localized text string describing the error. The fourth element
+is optional and its format is dependent on the specific error code.
+[nl]
+The command [uri \#win32_error [cmd win32_error]] can be used to generate
+an error in this format.
+[opt_def [const TWAPI]]
+This error class is used for non-Windows related errors, for example invalid
+options to commands. The format is similar to that of [const TWAPI_WIN32]
+except that the error code is an internal TWAPI error code and the text
+is not localized.
+[list_end]
+
+[para]
+For handling errors, the command
+[uri \#trap [cmd trap]] provides exception handling with finalization features.
+
+[para]
+For troubleshooting and debug purposes, TWAPI provides the
+[uri #debuglog [cmd debuglog]] command which writes to an internal log.
+This command is normally a no-op and must be enabled with
+[uri #debuglog_enable [cmd debuglog_enable]] for logging to have effect.
+It can be disabled again with
+[uri #debuglog_disable [cmd debuglog_disable]].
+The current contents of the debug log can be retrieved with
+[uri #debuglog_get [cmd debuglog_get]].
+
+[section "Utility commands"]
+[uri \#parseargs [cmd parseargs]]
+parses an argument list based on specified options.
+The command [uri \#expand_environment_strings [cmd expand_environment_strings]]
+replaces environment variables
+in a string with their values. [uri \#format_message [cmd format_message]]
+formats a operating system
+or application message.
+[para]
+Commands 
+[uri #large_system_time_to_secs_since_1970 [cmd large_system_time_to_secs_since_1970]],
+[uri #large_system_time_to_timelist [cmd large_system_time_to_timelist]],
+[uri #secs_since_1970_to_large_system_time [cmd secs_since_1970_to_large_system_time]] and
+[uri #timelist_to_large_system_time [cmd timelist_to_large_system_time]]
+convert between various time formats.
+
+[para]
+A [emph "Universally Unique Identifier (UUID)"] can be generated by the
+command [uri \#new_uuid [cmd new_uuid]]. A [emph nil] UUID can be
+generated by [uri #nil_uuid [cmd nil_uuid]].
+
+[para]
+The commands [uri \#load_library [cmd load_library]]
+and [uri \#free_library [cmd free_library]] can be used to load
+and free DLL's.
+
+[para]
+The commands [uri #tclcast [cmd tclcast]] and [uri #tcltype [cmd tcltype]]
+are useful for manipulating internal Tcl value types. This is sometimes useful
+and required when dealing with external APIs and data formats like
+[uri com.html#controllingparametertypes "COM"].
+
+[uri #hex32] [cmd hex32]] and
+[uri #hex64] [cmd hex64]] format numbers as fixed length
+hexadecimal strings.
+
+[uri #lambda [cmd lambda]] returns an anonymous proc definition
+based on the Tcl [cmd apply] command.
+
+[section Commands]
+[list_begin definitions]
+
+[call [cmd cancel_wait_on_handle] [arg HANDLE]]
+Cancels any previously registered asynchronous wait on a handle that
+was registered using [uri #wait_on_handle [cmd wait_on_handle]].
+
+[call [cmd close_handle] [arg HANDLE]]
+
+Closes the operating system handle [arg HANDLE]. If the handle has been
+registered for asynchronous notifications via
+[uri #wait_on_handle [cmd wait_on_handle]], the notifications are
+canceled (via [uri #cancel_wait_on_handle [cmd cancel_wait_on_handle]]).
+
+[call [cmd conceal] [arg PLAINTEXT]]
+Returns an encrypted binary string corresponding to [arg PLAINTEXT].
+[uri #reveal [cmd reveal]] can be used to decrypt the result.
+
+[call [cmd create_file] [arg PATH] [opt [arg options]]]
+This is a thin wrapper around the Win32 [cmd CreateFile] function that returns
+a handle to a file or device. The wrapper primarily provides mnemonics
+and defaults for the [cmd CreateFile] parameters. [arg PATH] specifies
+the file or device path. Additional options and default values are
+shown below.
+
+[list_begin opt]
+[opt_def [cmd -access] [arg ACCESSRIGHTS]] Specifies the desired access
+rights and may be
+specified as a list of integer access rights flags or symbols as described in
+[uri security.html#accessrights "Access Rights"]. Defaults to [const generic_read].
+[opt_def [cmd -createdisposition] [arg DISPOSITION]]
+[arg DISPOSITION] must be one of [const create_always], [const create_new],
+[const open_always], [const open_existing] or [const truncate_existing].
+Refer to the Windows SDK for the meaning. Defaults to [const open_always].
+[opt_def [cmd -flags] [arg FLAGS]] An integer bit mask corresponding to
+the [arg dwFlagsAndAttributes] parameter to [cmd CreateFile] function.
+See the Windows SDK for detail. Defaults to 0.
+[opt_def [cmd -inherit] [arg BOOL]]
+If true, the returned handle is inheritable by child processes. Defaults
+to [const false].
+[opt_def [cmd -secd] [arg SECURITY_DESCRIPTOR]]
+Specifies a [uri security.html\#securitydescriptors "security descriptor"]
+to be attached to the file or device if it has to be created. Defaults
+to a null security descriptor which results in the process' default
+security descriptor being applied.
+[opt_def [cmd -share]] Specifies the sharing mode of the object. This is list
+containing zero or more of the constants [const read], [const write]
+and [const delete] that control what kind of shared access should be allowed
+while the file or device is open. Defaults to [const {{read write delete}}].
+[opt_def [cmd -templatefile]] A handle to a template file
+with the GENERIC_READ access right from which
+file attributes and extended attributes are to be copied
+for the file that is being created. Defaults to NULL.
+[list_end]
+Refer to the Windows SDK for additional details.
+
+
+[call [cmd credentials_dialog] [opt [arg options]]]
+Shows a dialog prompting the user for credentials. Returns a list
+of three elements, the user name, the password, and a boolean indicating
+whether the user selected for the credentials to be saved or not.
+[nl]
+The following options may be specified:
+[list_begin opt]
+[opt_def [cmd -bitmap] [arg HANDLE]]
+Specifies a hande to a bitmap to be displayed in the dialog.
+[opt_def [cmd -caption] [arg CAPTION]]
+Specifies a caption to be displayed.
+[opt_def [cmd -expectconfirmation] [arg BOOLEAN]]
+See [uri #read_credentials [cmd read_credentials]].
+[opt_def [cmd -forceui] [arg BOOLEAN]]
+See [uri #read_credentials [cmd read_credentials]].
+[opt_def [cmd -message] [arg MESSAGE]]
+Specifies a message to be displayed to the user.
+[opt_def [cmd -parent] [arg HWIN]]
+Specifies the handle of a windows to be used as the parent for the dialog.
+[opt_def [cmd -password] [arg PASSWORD]]
+See [uri #read_credentials [cmd read_credentials]].
+[opt_def [cmd -persist] [arg BOOLEAN]]
+See [uri #read_credentials [cmd read_credentials]].
+[opt_def [cmd -showsaveoption] [arg BOOLEAN]]
+See [uri #read_credentials [cmd read_credentials]].
+[opt_def [cmd -target] [arg TARGETNAME]]
+See [uri #read_credentials [cmd read_credentials]].
+[opt_def [cmd -type] [arg TARGETTYPE]]
+See [uri #read_credentials [cmd read_credentials]].
+[opt_def [cmd -username] [arg USERNAME]]
+See [uri #read_credentials [cmd read_credentials]].
+[list_end]
+
+The command [uri #read_credentials [cmd read_credentials]] provides
+a console version of this command.
+
+[call [cmd debuglog] [opt [arg MESSAGE]]]
+Writes each specified argument as a message to an internal log.
+There is an internal limit on the number of messages stored. Older messages
+are discarded once the log reaches this limit. 
+The command must be enabled with 
+[uri #debuglog_enable [cmd debuglog_enable]] for logging to have effect.
+
+[call [cmd debuglog_clear]]
+Clears the internal debug log.
+
+[call [cmd debuglog_disable]]
+Disables the [uri #debuglog [cmd debuglog]] command.
+
+[call [cmd debuglog_enable]]
+Enables the [uri #debuglog [cmd debuglog]] command.
+
+[call [cmd debuglog_get]]
+Returns the current content of the internal debug log.
+
+[call [cmd duplicate_handle] [arg HANDLE] [opt [arg options]]]
+Duplicates an operating system handle. [arg HANDLE] may be either in
+the form returned by commands such as
+[uri \#get_tcl_channel_handle [cmd get_tcl_channel_handle]] or
+[uri process.html#get_process_handle [cmd get_process_handle]]
+or may be an actual address (integer) literal
+corresponding to the handle.
+The following options specify the context
+of the handle and control attributes of the duplicated handle:
+[list_begin opt]
+[opt_def [cmd -access] [arg ACCESSRIGHTS]]Specifies the access rights
+desired for the new handle. If unspecified, the new handle is created
+with the same access rights as the original one. [arg ACCESSRIGHTS]
+is a list of symbolic constants and bit masks as specified in
+[uri "security.html#accessrights" "Access Rights"].
+[opt_def [cmd -closesource]]If specified, [arg HANDLE] is
+closed after it is duplicated.
+[opt_def [cmd -inherit]]If specified, the new handle marked as inheritable.
+By default, the duplicated handle cannot be inherited by child processes.
+[opt_def [cmd -sourcepid] [arg SOURCEPID]]
+Specifies the PID of the process in whose
+context [arg HANDLE] is a valid handle. Defaults to the current process.
+[opt_def [cmd -targetpid] [arg TARGETPID]]
+Specifies the PID of the process in whose context
+the new handle is to be created. Specifying this also impacts the format
+of the returned handle value.
+[list_end]
+If option [cmd -targetpid] is not specified, the command returns the duplicated
+handle in symbolic form that can be passed to functions such as
+[uri \#close_handle [cmd close_handle]].
+If [cmd -targetpid] is specified, the command returns
+the literal value of the handle. This is true even if the target PID is
+that of the current process.
+
+[call [cmd expand_environment_strings] [arg STRING]]
+Returns the string formed by replacing all environment variable references in
+[arg STRING] with their values. Environment variable references are in the
+form [arg %ENVIRONMENTVAR%]. References to undefined environment variables
+are not replaced.
+
+[call [cmd export_public_commands]]
+Export public commands in the [cmd twapi::] namespace.
+The commands in the [cmd twapi::] namespace are not exported by default.
+
+[call [cmd format_message] [opt [arg options]]]
+Formats and returns
+a message string based on a format string. The format string may be
+directly supplied, obtained from a loaded library
+or module, or the system message tables. The format string may contain
+format insert specifiers of the form [arg %N] where N is a number
+between 1 and 99. The format specifier is replaced by the corresponding
+positional parameter. The format specifier [const %0] is treated
+specially as indicating that a newline character is not to be appended
+to the result.
+See [cmd FormatMessage] in the Windows SDK for more details regarding this
+command including format specifiers.
+The command takes the following options:
+[list_begin opt]
+[opt_def [cmd -module] [arg MODULE]]Specifies that the format string is to be
+loaded from the module identified by [arg MODULE]. [arg MODULE] may either
+be a handle returned from a command such as 
+[uri #load_library [cmd load_library]] or the path
+to a DLL. If this
+option is specified, options [cmd -messageid] and [cmd -langid] must also
+be specified.
+This option cannot be used with the [cmd -fmtstring] option.
+[opt_def [cmd -fmtstring] [arg FORMATSTRING]]Specifies that
+[arg FORMATSTRING] should be used as the format string for the message.
+Cannot be used with the [cmd -module] option.
+[opt_def [cmd -messageid] [arg MESSAGEID]]Specifies the message identifier
+of the format string.
+This option cannot be used with the [cmd -fmtstring] option.
+[opt_def [cmd -langid] [arg LANGID]]Specifies the language identifier
+to be used in constructing the message.
+This option cannot be used with the [cmd -fmtstring] option.
+[opt_def [cmd -includesystem]]Specifies that the system message tables
+should also be searched in addition to the message tables in the
+module specified by [cmd -module].
+This option cannot be used with the [cmd -fmtstring] option.
+[opt_def [cmd -params] [arg PARAMLIST]]Specifies a list of positional
+parameters that are to be used to replace the [arg %N] format insert
+sequences in the format string. If the number of parameters does not match
+the number of escape sequences, a Tcl exception may be generated.
+[opt_def [cmd -ignoreinserts]]If specified, the [arg %N] format insert
+sequences are not replaced in the returned string.
+[opt_def [cmd -width] [arg MAXLINEWIDTH]]
+If [arg MAXLINEWIDTH] is [const 0] (default), the returned string
+contains the same line breaks as in the original format string. The
+[cmd -width] option may be used to control the maximum line width in the
+created message. If [arg MAXLINEWIDTH] is between 1 and 254, the command
+will insert line end characters
+at appropriate points in the message. In this case,
+line end characters in the original message are ignored. However, hard coded
+line end characters, specified as [const %n] in the format string are kept.
+A [arg MAXLINEWIDTH] value of -1 also ignores line end characters
+while keeping the hard coded [const %n] line end specifiers, but does
+not insert any line end characters to limit the line length and to terminate
+the message.
+[list_end]
+
+[emph {Warning: This command requires all insert placeholders to be
+strings. Decimal format specifiers such as %|u! will not result in the
+correct decimal value being inserted.}]
+
+[call [cmd free_library] [arg HMODULE]]
+Frees a loaded module. [arg HMODULE] must be a handle previously
+returned through [uri #load_library [cmd load_library]],
+[uri process.html#get_module_handle [cmd get_module_handle]] or
+[uri process.html#get_module_handle_from_address [cmd get_module_handle_from_address]].
+
+[call [cmd get_build_config] [opt [arg CONFIGKEY]]]
+
+If no arguments are specified, 
+returns an dictionary that contains the TWAPI build configuration.
+If [arg CONFIGKEY] is specified, only returns the value for that configuration
+key. The build configuration keys are:
+
+[list_begin opt]
+[opt_def [const comobj_ootype]]
+The underlying object system on which the TWAPI COM support is built.
+[opt_def [const compiler]]
+The compiler used for the build (e.g. [const vc++])
+[opt_def [const compiler_version]]
+The version of the build compiler.
+[opt_def [const opts]]
+List of additional options used in the build.
+[opt_def [const platform]]
+One of [const x86] or [const x64].
+[opt_def [const sdk_version]]
+Version of the Windows SDK used for the build.
+[opt_def [const tcl_header_version]]
+Version of the Tcl headers used for the build.
+[opt_def [const tea]]
+Boolean indicating whether the build used Tcl Extension Architecture
+or native builds.
+[list_end]
+
+[call [cmd get_tcl_channel_handle] [arg CHANNEL] [arg DIRECTION]]
+
+Returns the operating system handle corresponding to a Tcl channel identifier
+(for example, returned by the Tcl [cmd open] command). If [arg DIRECTION]
+is [const write], the write-side handle is returned, otherwise the read-side
+handle is returned. (For many channel types, the two are identical.)
+
+
+[call [cmd get_version] [opt [cmd -patchlevel]]]
+Without any arguments, the command returns the major/minor TWAPI version
+number in the form [arg MAJOR.MINOR]. If the option [cmd -patchlevel] is
+specified, the returned string includes patchlevel and release information
+similar to the Tcl [cmd "info patchlevel"] command, for example,
+[const 1.0.2] for final release of version 1.0 patch 2,
+[const 1.0b3] for the third beta release of version 1.0 and
+[const 1.0a3] for the third alpha release of version 1.0.
+
+[call [cmd hex32] [arg INT32VAL]]
+Returns [arg INT32VAL] as a fixed width hexadecimal string.
+
+[call [cmd hex64] [arg INT64VAL]]
+Returns [arg INT64VAL] as a fixed width hexadecimal string.
+
+[call [cmd import_commands]]
+Imports all public commands in the [cmd twapi::] namespace into the caller's
+namespace.
+
+[call [cmd is_valid_sid_syntax] [arg sid]]
+Returns true or false depending on whether [arg sid] is a valid SID or not.
+Note this only checks the syntax of the SID, not whether it corresponds to
+a real account.
+
+[call [cmd lambda] [arg ARGLIST] [arg BODY] [opt [arg NAMESPACE]]]
+Simple wrapper that returns an anonymous
+proc definition based on the Tcl [cmd apply] command.
+
+[call [cmd large_system_time_to_secs_since_1970] [arg SYSTEMTIMEVALUE] [opt BOOLEAN]]
+Some Windows functions return time as the number of 100 nanosecond units
+since Jan 1, 1601. The command converts such time values to seconds since
+the epoch Jan 1, 1970. If [arg BOOLEAN] is false (default), an integral
+number of seconds is returned. Otherwise, the fractional part is also returned.
+
+[call [cmd large_system_time_to_timelist] [arg SYSTEMTIMEVALUE]]
+Some Windows functions return time as the number of 100 nanosecond units
+since Jan 1, 1601. The command converts such time values to a list
+of 8 elements representing the year, month, day, hour, minutes, seconds, 
+milliseconds and day of week.
+
+[call [cmd load_library] [arg FILEPATH] [opt [arg options]]]
+
+Loads a DLL and returns a handle to it.
+The handle must later be released by calling
+[uri \#free_library [cmd free_library]], not [cmd close_handle].
+
+The following options may be specified:
+[list_begin opt]
+[opt_def [cmd -dontresolverefs]]Normally, if the module being loaded is a DLL,
+the system will load any other modules referenced by it and also call its
+[cmd DllMain] function to initialize it. If this option is specified, neither
+of these actions will be done.
+[opt_def [cmd -datafile]]If specified, the module is loaded as a data file as
+opposed to an executable module. This is useful when the file is being
+loaded only to 
+[uri resource.html "extract resources"] or 
+[uri base.html\#format_message "format messages"].
+[opt_def [cmd -alteredpath]]Uses an alternative search strategy to find
+modules referenced by this module. See the Windows SDK for more details.
+[list_end]
+
+[nl]
+See [cmd LoadLibraryEx] in the Windows SDK for more details regarding this
+command.
+
+[call [cmd lookup_account_name] [arg name] [opt [arg options]]]
+[arg name] specifies the name of the account and may be fully qualified
+in the form [arg {domain\name}].
+[nl]
+If no options are specified, this command returns the SID for the account.
+If one or more options are specified, returns a flat list of
+the form "[arg option1] [arg value1] ...".
+The following options may be specified:
+
+[list_begin opt]
+[opt_def [cmd -all]] Returns all values.
+[opt_def [cmd -sid]]
+Returns the SID for the account.
+[opt_def [cmd -domain]]
+Returns the domain in which the account was found.
+[opt_def [cmd -system]] Specifies the name of the system on which the
+account is to be looked up. If unspecified, the local system is used.
+[opt_def [cmd -type]] Returns the account type. This may be one
+of [const user], [const group] (domain group),
+[const domain], [const alias] (system local group), [const logonid],
+[const wellknowngroup], [const deletedaccount], [const invalid],
+[const unknown], [const computer] or [const label].
+The [const logonid] type is returned for SID's that identify a logon session.
+[list_end]
+
+[call [cmd lookup_account_sid] [arg sid] [opt [arg options]]]
+Argument [arg sid] specifies the SID of the account.
+If no options are specified, this command returns the name for the account.
+If one or more options are specified, the command returns a flat list of
+the form "[arg option1] [arg value1] ...".
+The following options may be specified:
+
+[list_begin opt]
+[opt_def [cmd -all]] Returns all values.
+[opt_def [cmd -name]]
+Returns the name for the account.
+[opt_def [cmd -domain]]
+Returns the domain in which the account was found.
+[opt_def [cmd -system]] Specifies the name of the system on which the
+account is to be looked up. If unspecified, the local system is used.
+[opt_def [cmd -type]] Returns the account type. This may be one
+of [const user], [const group] (domain group), [const domain],
+[const alias] (system local group),
+[const wellknowngroup], [const deletedaccount], [const invalid],
+[const unknown], or [const computer].
+[list_end]
+
+
+[call [cmd map_account_to_name] [arg ACCOUNT] [opt "[cmd -system] [arg SYSTEMNAME]"]]
+Returns the name for an account. If [arg ACCOUNT] is a valid account name,
+it is returned as is. Otherwise, it is assumed to be a SID
+and the corresponding account name is returned.
+An exception is raised if neither
+of these is true. The option [cmd -system]
+may be used to specify a system as described in [sectref "Standard Options"].
+
+[call [cmd map_account_to_sid] [arg ACCOUNT] [opt "[cmd -system] [arg SYSTEMNAME]"]]
+Returns the SID corresponding to an account. If [arg ACCOUNT] is a SID,
+it is returned as is. Otherwise, it is assumed to be an account name
+and the corresponding SID is returned. An exception is raised if neither
+of these is true. The option [cmd -system]
+may be used to specify a system as described in [sectref "Standard Options"].
+
+[call [cmd map_windows_error] [arg ERRORCODE]]
+Returns the text string corresponding to a Windows error code.
+
+[call [cmd new_uuid] [opt [cmd -localok]]]
+Returns a [uri \#uniqueidentifiers UUID]. If the system does not
+contain a network card, the operating system may return an error as it
+cannot guarantee uniqueness across systems. Specifying the [cmd -localok]
+option causes this to be ignored and a identifier value to be returned
+anyways.
+
+[call [cmd nil_uuid]]
+Returns a nil [uri \#uniqueidentifiers UUID].
+
+[call [cmd parseargs] [arg ARGLISTVAR] [arg OPTLIST] [opt [cmd -ignoreunknown]] [opt [cmd -nulldefault]] [opt [cmd -hyphenated]] [opt "[cmd -maxleftover] [arg MAXLEFTOVER]"] [opt [cmd -setvars]]]
+Parses the options specified in a list of arguments.
+[arg ARGLISTVAR] is the name of a variable in the caller's scope that
+contains a list of arguments. Option names are case-sensitive and begin with 
+a [const -] character. Option processing is terminated when an argument
+does not begin with a leading [const -] or is one of the
+special [const -] or [const --].
+[nl]
+[arg OPTLIST] specifies the valid options
+allowed and is list of option specifiers. Each option specifier is a list
+of up to 3 elements and takes the following form:
+[nl]
+[arg "OPTNAME[opt [cmd .]OPTTYPE]"] [arg [opt "DEFAULTVALUE [opt VALUEOPTS]"]]
+[nl]
+[arg OPTNAME] is the name of the option (without a leading [cmd -]) and
+is required.
+[arg OPTTYPE] should be separated
+from the name with a [cmd .] and specifies the type of the option.
+It must have one of the following values: [cmd arg],
+[cmd bool], [cmd int], or [cmd switch]. In
+the first three cases, the argument following the option is taken
+as the value of the option and must be of an appropriate type:
+an arbitrary string, a boolean value ([const "0, 1, off, on, false, true"])
+or an integer respectively. If the option type is [cmd switch], or is
+not specified at all, then
+the option is not associated with any value and is treated as a binary switch.
+[nl]
+[arg DEFAULTVALUE], specifies
+a default value to be assumed for the option if it is not present in
+[arg ARGLISTVAR]. This is ignored for options of type [cmd switch].
+[nl]
+If [arg VALUEOPTS] is specified for option types [cmd arg] or [cmd int],
+it is treated as a list of
+allowed values for the option. If an option's value is not in the
+list, the command will return an error. 
+If the option type is [cmd bool] or [cmd switch], [arg VALUEOPTS]
+is the treated as the value to return when the value of the option
+is boolean true (by default [const 1] is returned). This is commonly
+used in TWAPI to return a integer bit mask for the true value
+of an option.
+
+[nl]
+If the option [cmd -setvars] is not specified,
+the command returns a list of the form [arg "OPTION VALUE OPTION VALUE..."].
+If the [cmd -hyphenated] option is not specified, the [arg OPTION] 
+fields in the returned value contain the option name without a leading
+[const -] character. If the [cmd -hyphenated] option is specified,
+[arg OPTION] includes the leading [cmd -] character. This is useful when
+options are passed through to other commands after partial processing.
+[nl]
+If the option [cmd -setvars] is specified, the command sets 
+variables with the names of the specified options to the corresponding
+values. The command returns an empty string in this case.
+
+[nl]
+If the [cmd -nulldefault] option is not present,
+only options that are present in [arg ARGLISTVAR],
+or have a default value specified, or are of type [cmd switch]
+are included in the returned result. If the [cmd -nulldefault] option is
+present, then the returned list also includes values for options that are not
+present - [const 0] for options of type [cmd int] and [cmd bool], and
+an empty string for arguments of type [cmd arg].
+[nl]
+As a side effect, the variable [arg ARGLISTVAR] is modified to
+remove the parsed options and associated values. If the
+[cmd -maxleftover] option is specified, the command will raise a
+Tcl error if the number of arguments left over after parsing
+the options is more than [arg MAXLEFTOVER].
+[nl]
+The command will normally
+generate a Tcl error if the arguments include an unknown option
+(an argument that begins with a [const -] character and is not
+in [arg OPTLIST]). If the [cmd -ignoreunknown] option is specified to
+the command, unknown options in [arg ARGLISTVAR] are ignored instead
+of an error being generated and are not removed from [arg ARGLISTVAR].
+
+[call [cmd random_bytes] [arg NUMBER]]
+Returns the specified number of random bytes. This is a call into
+the RtlGenRandom Win32 API.
+
+[call [cmd read_credentials] [opt [arg options]]]
+Prompts the user for credentials via the console. Returns a list
+of three elements, the user name, the password, and a boolean indicating
+whether the user selected for the credentials to be saved or not.
+[nl]
+The following options may be specified:
+[list_begin opt]
+[opt_def [cmd -expectconfirmation]] option lets the manager know the application
+will call [cmd confirm_credentials] after verifying credentials. If
+[const false], the credentials manager will not hold on to the credentials
+and [cmd confirm_credentials] need not be called. Generally,
+if [cmd -persist] is specified as true, this option should also
+be specified as [const true] and [cmd confirm_credentials] called
+after verifying the credentials.
+[opt_def [cmd -forceui] [arg BOOLEAN]]
+If specified as [const true], the user is prompted even if the credentials
+manager already has the requested credentials. Default is [const false].
+[opt_def [cmd -password] [arg PASSWORD]]
+The password to be used as default. [arg PASSWORD] must be in the
+form accepted by [uri #reveal [cmd reveal]] which is also the form
+returned by this command. Plain text passwords are [emph not]
+supported by this command.
+[opt_def [cmd -persist] [arg BOOLEAN]]
+If [const true], credentials are to be persisted by the credentials
+manager if so desired by the user. Default is [const false].
+[opt_def [cmd -showsaveoption] [arg BOOLEAN]]
+Specifies whether the user should be given the option to save the credentials.
+Defaults to [const true] (meaning user is given the choice). If specified
+as [const false], credentials are persisted depending on the [cmd -persist]
+option.
+[opt_def [cmd -target] [arg TARGETNAME]]
+Name of the target for the credentials, for example the server name.
+This is used as the key when retrieving credentials.
+[opt_def [cmd -type] [arg TARGETTYPE]]
+Specifies the type of credentials. [arg TARGETTYPE] must be
+[const generic] (default) or [const domain].
+[opt_def [cmd -username] [arg USERNAME]]
+The user name to display as the default. Defaults to the empty string.
+[opt_def [cmd -expectconfirmation] [arg BOOLEAN]]
+The credentials manager can persist credentials that are valid so they can be
+returned later without prompting the user. The application needs
+to inform it whether the returned credentials are valid or not by calling
+[uri #confirm_credentials [cmd confirm_credentials]]. When [const true],
+[list_end]
+
+The command [uri #credentials_dialog [cmd credentials_dialog]] provides
+a GUI version of this command.
+
+[call [cmd rethrow]]
+Raises a Tcl error where the error options, including values of
+[var errorCode] and [var errorStack], are the same as when an exception
+was raised inside a [uri #trap [cmd trap]] command.
+This command can only be used inside a [cmd onerror] clause of
+a [cmd trap] and is useful to regenerate the original error when
+the error handler cannot handle the exception.
+
+[call [cmd reveal] [arg ENCRYPTED]]
+Decrypts a binary string that was encrypted by [uri #conceal [cmd conceal]].
+
+[call [cmd safearray] [arg TYPE] [arg LISTVALUE]]
+Returns [arg LISTVALUE] in a form that is interpreted by
+[uri com.html COM] related commands as a single-dimensioned safearray of 
+type [arg TYPE]. [arg TYPE] must be on of the COM types
+[const bool], [const int] or [const i4], [const double] or [const r8], or [const bstr].
+
+[call [cmd secs_since_1970_to_large_system_time] [arg SECONDS]]
+This command converts [arg SECONDS] which is the number of seconds since
+the epoch Jan 1, 1970 to the number of 100 nanoseconds since Jan 1, 1601.
+
+[call [cmd timelist_to_large_system_time] [arg TIMELIST]]
+Converts [arg TIMELIST] to the number of 100 nanoseconds since Jan 1, 1601.
+If [arg TIMELIST] is an empty list, it defaults to the current date and time.
+Otherwise it is a list of 3-7 elements that specify the year, month,
+day, hours, minutes, seconds and milliseconds. The last four are optional
+and default to [const 0]. 
+
+[arg TIMELIST] must be a list
+of 7 elements representing the year, month, day, hour, minutes, seconds
+and milliseconds.
+
+[call [cmd tclcast] [arg TYPE] [arg VALUE]]
+Returns [arg VALUE] whose internal Tcl type is set to [arg TYPE].
+See [uri com.html#controllingparametertypes "Controlling Parameter Types"]
+for a use case. [arg TYPE] must be one of [const empty], [const null]
+(corresponding to COM VARIANT types VT_EMPTY and VT_NULL), or one
+of the Tcl internal types
+[const int], [const boolean], [const double], [const string],
+[const list], or [const dict]. 
+
+[call [cmd tcltype] [arg VALUE]]
+Returns the internal Tcl type for a value.
+
+[call [cmd trap] [arg SCRIPT] [opt "[cmd onerror] [arg ERRORPATTERN] [arg ERRORSCRIPT]"]... [opt "[cmd finally] [arg FINALSCRIPT]"]]
+
+The command executes [arg SCRIPT] in the caller's context. If the script
+completes without generating any Tcl exceptions, the command executes
+the script [arg FINALSCRIPT] if specified. The result of the command is
+the result of [arg SCRIPT].
+[nl]
+If [arg SCRIPT] generates any errors, the command matches the
+Tcl global [cmd ::errorCode] variable against each specified
+[arg ERRORPATTERN] in turn. When the first match is found, the corresponding
+[arg ERRORSCRIPT] is executed. Then [arg FINALSCRIPT] is executed if specified.
+The return value from the command
+is the result of the executed [arg ERRORSCRIPT]  script.
+[nl]
+If the none of the [arg ERRORPATTERN] arguments match when an error
+occurs in [arg SCRIPT], the command executes [arg FINALSCRIPT] if specified,
+and then regenerates the original error.
+[nl]
+Each [arg ERRORPATTERN] should be a list and is matched against the first
+(facility) and second (code) elements of [cmd ::errorCode]. If
+[arg ERRORPATTERN] is empty, it matches any value of [cmd ::errorCode].
+If [arg ERRORPATTERN] contains only one element, it is matched against
+the first element of [cmd ::errorCode] with the second field of
+[cmd ::errorCode] not used for matching. When matching against the second
+element of [cmd ::errorCode], first a exact string match is tried and
+if that fails, an integer match is tried if both operands being compared
+are valid integers.
+[nl]
+Within an [cmd onerror] clause, the command
+[uri #rethrow [cmd rethrow]] may be used to raise the error that was
+caught by the clause. This is useful when an error handler finds it
+cannot handle the case and wants to raise the original error.
+Similarly, the [cmd trapresult] and [cmd trapoptions] commands
+can be used in a [cmd onerror] clause to retrieve the error message
+and error options dictionary captured by the [cmd onerror] clause.
+
+[call [cmd wait_on_handle] [arg HANDLE] [opt [arg options]]]
+The command waits on the specified [arg HANDLE] until it is either
+signalled or a timeout expires. The command can also be used for
+non-blocking asynchronous notification. [arg HANDLE] may be any
+operating system handle for which Windows supports the
+[cmd WaitForSingleObject] API.
+[nl]
+The command may return one of the following values if the
+[cmd -async] option is not specified: [const signalled], [const timeout],
+[const abandoned]. If [cmd -async] is specified, the command
+returns an empty string and the result is passed to the callback script
+instead.
+[nl]
+The following options may be specified:
+[list_begin opt]
+[opt_def [cmd -wait] [arg MILLISECS]] Specifies the number of 
+number of milliseconds to wait for the handle to be signalled.
+The default is [const -1] which indicates no timeout.
+[opt_def [cmd -async] [arg SCRIPT]] If specified, the command
+returns immediately. [arg SCRIPT] is then invoked when the handle
+is signalled or the timeout specified through [cmd -wait] has elapsed.
+Note that if a timeout is specified with the [cmd -wait] option, the
+timeout does not cancel the wait and the script is invoked repeatedly
+every [arg MILLISECONDS] if the handle is not signalled.
+[nl]
+Two additional arguments are appended to [arg SCRIPT] - [arg HANDLE]
+and the return value ([const signalled] etc.). Once a handle is registered
+for asynchronous notification, it must not be used for synchronous
+notification unless the asynchronous notification is first canceled through
+the [uri #cancel_wait_on_handle [cmd cancel_wait_on_handle]] command.
+If the handle was already registered for asynchronous notification,
+the previously registered script is replaced with [arg SCRIPT].
+[opt_def [cmd -executeonce] [arg BOOLEAN]]
+If this option is specified as [const true], the [arg SCRIPT] is
+executed only once, even if the object [arg HANDLE] stays in a signalled
+state. Default is [const false].
+This option is ignored if [cmd -async] is not specified.
+[list_end]
+
+[call [cmd win32_error] [arg WINERROR] [opt [arg MESSAGE]]]
+Generates a Tcl exception corresponding to the Windows error code WINERROR.
+[arg MESSAGE] may be specified as the error message in which case the
+system error message for [arg WINERROR] is appended to it.
+
+[list_end]
+
+[keywords "format messages" "messages" "system messages" "environment string" "expand environment strings" "argument parsing" "option parsing" "version" "TWAPI version" "time conversion" "SID" "user account" "error handling" "error messages" "exception handling" password credentials]
+
+[manpage_end]
