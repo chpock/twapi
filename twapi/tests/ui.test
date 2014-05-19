@@ -1,0 +1,2409 @@
+#
+# Copyright (c) 2004-2010, Ashok P. Nadkarni
+# All rights reserved.
+#
+# See the file LICENSE for license
+
+# This file contains tests for commands from the uitcl
+
+package require tcltest
+eval tcltest::configure $argv
+
+source [file join [file dirname [info script]] testutil.tcl]
+load_twapi_package twapi_ui
+package require twapi_process;  # TBD - needed for get_process_info
+package require twapi_os;       # Needed for GetSystemParametersInfo
+package require twapi_shell;    # shell_execute
+
+namespace eval twapi::ui::test {
+    namespace import ::tcltest::test
+
+    # Timeout when ending processes
+    set end_process_timeout 5000
+
+    # Offset from window edge to system menu or close buttons
+    if {[twapi::min_os_version 6]} {
+        set button_edge_offset 10
+    } else {
+        set button_edge_offset 5
+    }
+
+
+    test get_toplevel_windows-1.0 {
+        Get toplevel windows
+    } -body {
+        expr {[llength [twapi::get_toplevel_windows]] > 0}
+    } -result 1
+
+    test get_toplevel_windows-1.1 {
+        Get toplevel windows - invalid options
+    } -body {
+        twapi::get_toplevel_windows -nosuchoption badarg
+    } -returnCodes {error} -match glob -result *
+
+    test get_toplevel_windows-2.0 {
+        Get toplevel windows for a process (pid)
+    } -body {
+        set pid [get_explorer_pid]
+        set wins [twapi::get_toplevel_windows -pid $pid]
+        set match [expr {[llength $wins] > 0}]
+        foreach win $wins {
+            if {[twapi::get_window_process $win] != $pid} {
+                set match 0
+                break
+            }
+        }
+        set match
+    } -result 1
+
+    test get_toplevel_windows-2.1 {
+        Get toplevel windows for a non-existent process (pid)
+    } -body {
+        llength [twapi::get_toplevel_windows -pid 12000]
+    } -result 0
+
+    test get_toplevel_windows-3.0 {
+        Get toplevel windows for a process -pids
+    } -body {
+        set pid [get_explorer_pid]
+        set wins [twapi::get_toplevel_windows -pids [list $pid]]
+        set match [expr {[llength $wins] > 0}]
+        foreach win $wins {
+            if {[twapi::get_window_process $win] != $pid} {
+                set match 0
+                break
+            }
+        }
+        set match
+    } -result 1
+
+    test get_toplevel_windows-3.1 {
+        Get toplevel windows for a process -pids (multiple)
+    } -body {
+        setops::diff [twapi::get_toplevel_windows -pids [wmic_values Win32_Process ProcessId]] [twapi::get_toplevel_windows]
+    } -result ""
+
+    ################################################################
+
+    test find_windows-1.0 {
+        Find windows (no arguments)
+    } -body {
+        expr {[llength [twapi::find_windows]] > 0}
+    } -result 1
+
+    test find_windows-1.1 {
+        Find windows (invalid arguments)
+    } -body {
+        twapi::find_windows -nosuchoption badarg
+    } -returnCodes {error} -match glob -result *
+
+    test find_windows-2.0 {
+        Find first matching window (-single)
+    } -body {
+        twapi::pointer? [twapi::find_windows -single]
+    } -result 1
+
+    test find_windows-3.0 {
+        Find windows with a specified ancestor
+    } -setup {
+        set np_pid [notepad_exec]
+    } -body {
+        set np_top [notepad_top $np_pid]
+        expr {[llength [twapi::find_windows -ancestor $np_top]] > 0}
+    } -cleanup {
+        kill $np_pid -wait $end_process_timeout
+    } -result 1
+
+    test find_windows-3.1 {
+        Find windows with a specified ancestor
+    } -setup {
+        set np_pid [notepad_exec]
+        set np_top [notepad_top $np_pid]
+    } -body {
+        expr {[llength [twapi::find_windows -ancestor $np_top]] > 0}
+    } -cleanup {
+        kill $np_pid -wait $end_process_timeout
+    } -result 1
+
+    test find_windows-3.2 {
+        Find windows with a specified ancestor (empty)
+    } -setup {
+        set np_pid [notepad_exec]
+        set np_top [notepad_top $np_pid]
+        set np_child [lindex [twapi::find_windows -ancestor $np_top] 0]
+    } -body {
+        twapi::find_windows -ancestor $np_child
+    } -cleanup {
+        kill $np_pid -wait $end_process_timeout
+    } -result ""
+
+    test find_windows-4.0 {
+        Verify -caption true and -caption false are exclusive and encompassing
+    } -body {
+        set all    [::setops::create [twapi::find_windows]]
+        set caps   [::setops::create [twapi::find_windows -caption true]]
+        set nocaps [::setops::create [twapi::find_windows -caption false]]
+        set union  [::setops::union [list $caps $nocaps]]
+        set inter  [::setops::Intersect $caps $nocaps]
+        expr {[::setops::empty $inter] &&
+              [::setops::empty [::setops::diff $all $union]] &&
+              [::setops::empty [::setops::diff $union $all]]}
+    } -result 0
+
+    test find_windows-4.1 {
+        Find windows with a caption
+    } -setup {
+        set np_pid [notepad_exec]
+    } -body {
+        llength [twapi::find_windows -pids [list $np_pid] -caption true]
+    } -cleanup {
+        kill $np_pid -wait $end_process_timeout
+    } -result 1
+
+    test find_windows-4.2 {
+        Find windows without caption
+    } -setup {
+        set np_pid [notepad_exec]
+    } -body {
+        expr {[llength [twapi::find_windows -pids [list $np_pid] -caption false]] > 0}
+    } -cleanup {
+        kill $np_pid -wait $end_process_timeout
+    } -result 1
+
+    test find_windows-5.0 {
+        Verify -child true and -child false are exclusive and encompassing
+    } -body {
+        set all    [::setops::create [twapi::find_windows]]
+        set caps   [::setops::create [twapi::find_windows -child true]]
+        set nocaps [::setops::create [twapi::find_windows -child false]]
+        set union  [::setops::union [list $caps $nocaps]]
+        set inter  [::setops::Intersect $caps $nocaps]
+        expr {[::setops::empty $inter] &&
+              [::setops::empty [::setops::diff $all $union]] &&
+              [::setops::empty [::setops::diff $union $all]]}
+    } -result 0
+
+    test find_windows-5.1 {
+        Verify find_windows returns non-child windows if -child false specifed
+    } -setup {
+        set np_pid [notepad_exec]
+        set np_top [notepad_top $np_pid]
+    } -body {
+        expr {
+              [lsearch -exact [twapi::find_windows -child false -pids [list $np_pid]] $np_top] >= 0
+          }
+    } -cleanup {
+        kill $np_pid -wait $end_process_timeout
+    } -result 1
+
+    test find_windows-5.2 {
+        Verify find_windows does not return non-child windows if -child true specifed
+    } -setup {
+        set np_pid [notepad_exec]
+        set np_top [notepad_top $np_pid]
+    } -body {
+        expr {
+              [lsearch -exact [twapi::find_windows -child true -pids [list $np_pid]] $np_top] < 0
+          }
+    } -cleanup {
+        kill $np_pid -wait $end_process_timeout
+    } -result 1
+
+    test find_windows-5.3 {
+        Verify find_windows returns child windows if -child true specifed
+    } -setup {
+        set np_pid [notepad_exec]
+        set np_top [notepad_top $np_pid]
+        set np_child [lindex [twapi::find_windows -ancestor $np_top] 0]
+    } -body {
+        expr {
+              [lsearch -exact [twapi::find_windows -child true -pids [list $np_pid]] $np_child] >= 0
+          }
+    } -cleanup {
+        kill $np_pid -wait $end_process_timeout
+    } -result 1
+
+    test find_windows-5.4 {
+        Verify find_windows does not return child windows if -child false specifed
+    } -setup {
+        set np_pid [notepad_exec]
+        set np_top [notepad_top $np_pid]
+        set np_child [lindex [twapi::find_windows -ancestor $np_top] 0]
+    } -body {
+        expr {
+              [lsearch -exact [twapi::find_windows -child false -pids [list $np_pid]] $np_child] < 0
+          }
+    } -cleanup {
+        kill $np_pid -wait $end_process_timeout
+    } -result 1
+
+    test find_windows-6.0 {
+        Verify find_windows returns windows of a specific class
+    } -setup {
+        set np_pid [notepad_exec]
+    } -body {
+        expr { [llength [twapi::find_windows -class Notepad]] > 0 }
+    } -cleanup {
+        kill $np_pid -wait $end_process_timeout
+    } -result 1
+
+    test find_windows-6.1 {
+        Verify find_windows returns windows of a specific class
+    } -setup {
+        set np_pid [notepad_exec]
+    } -body {
+        llength [twapi::find_windows -class NOSUCHCLASS]
+    } -cleanup {
+        kill $np_pid -wait $end_process_timeout
+    } -result 0
+
+    test find_windows-7.0 {
+        Verify find_windows returns windows with a specific title
+    } -setup {
+        set cur_np [llength [twapi::find_windows -text "Untitled - Notepad"]]
+        set np_pid [notepad_exec]
+    } -body {
+        expr { [llength [twapi::find_windows -text "Untitled - Notepad"]] - $cur_np }
+    } -cleanup {
+        kill $np_pid -wait $end_process_timeout
+    } -result 1
+
+    test find_windows-7.1 {
+        Verify find_windows returns empty when searching for non-existent windows with a specific title
+    } -setup {
+        set np_pid [notepad_exec]
+    } -body {
+        # Note we use "*" - should not be treated as wildcard
+        llength [twapi::find_windows -text "Untitled*"]
+    } -cleanup {
+        kill $np_pid -wait $end_process_timeout
+    } -result 0
+
+    test find_windows-7.2 {
+        Verify find_windows returns windows with a specific title using string matching
+    } -setup {
+        set cur_np [llength [twapi::find_windows -match string -text "UNTITLED - NOTEPAD"]]
+        set np_pid [notepad_exec]
+    } -body {
+        # Note case should be ignored
+        expr { [llength [twapi::find_windows -text "UNTITLED - NOTEPAD"]] - $cur_np }
+    } -cleanup {
+        kill $np_pid -wait $end_process_timeout
+    } -result 1
+
+    test find_windows-7.3 {
+        Verify find_windows returns does not match windows titles using wildcards when -string matching used
+    } -setup {
+        set np_pid [notepad_exec]
+    } -body {
+        # Note case should be ignored
+        llength [twapi::find_windows -match string -text "UNTITLED*"]
+    } -cleanup {
+        kill $np_pid -wait $end_process_timeout
+    } -result 0
+
+    test find_windows-7.4 {
+        Verify find_windows matches windows titles using trailing wildcards
+    } -setup {
+        set cur_np [llength [twapi::find_windows -text "Untitled - Notepad"]]
+        set np_pid [notepad_exec]
+    } -body {
+        # Note case should be ignored
+        expr { [llength [twapi::find_windows -match glob -text "Untitled*"]] - $cur_np }
+    } -cleanup {
+        kill $np_pid -wait $end_process_timeout
+    } -result 1
+
+    test find_windows-7.5 {
+        Verify find_windows matches windows titles using leading wildcards
+    } -setup {
+        set cur_np [llength [twapi::find_windows -text "Untitled - Notepad"]]
+        set np_pid [notepad_exec]
+    } -body {
+        # Note case should be ignored
+        expr { [llength [twapi::find_windows -match glob -text "*Notepad"]] - $cur_np }
+    } -cleanup {
+        kill $np_pid -wait $end_process_timeout
+    } -result 1
+
+    test find_windows-7.6 {
+        Verify find_windows matches windows titles using middle wildcards
+    } -setup {
+        set cur_np [llength [twapi::find_windows -text "Untitled - Notepad"]]
+        set np_pid [notepad_exec]
+    } -body {
+        # Note case should be ignored
+        expr { [llength [twapi::find_windows -match glob -text "Un*No*ad"]] - $cur_np }
+    } -cleanup {
+        kill $np_pid -wait $end_process_timeout
+    } -result 1
+
+    test find_windows-7.7 {
+        Verify find_windows matches windows titles using regexp
+    } -setup {
+        set cur_np [llength [twapi::find_windows -text "Untitled - Notepad"]]
+        set np_pid [notepad_exec]
+    } -body {
+        # Note case should be ignored
+        expr { [llength [twapi::find_windows -match regexp -text {U.*n.*p[a|e]d}]] - $cur_np }
+    } -cleanup {
+        kill $np_pid -wait $end_process_timeout
+    } -result 1
+
+    test find_windows-7.8 {
+        Verify find_windows raises error on unknown match type
+    } -setup {
+    } -body {
+        # Note case should be ignored
+        twapi::find_windows -match foo -text WHOCARES
+    } -cleanup {
+    } -returnCodes {error} -result "Invalid value 'foo' specified for option '-match'. Must be one of string, glob, regexp"
+
+    test find_windows-8.0 {
+        Find windows that are maximized
+    } -setup {
+        set np_pid [notepad_exec]
+        set np_win [notepad_top $np_pid]
+        twapi::maximize_window $np_win -sync
+    } -body {
+        # Note case should be ignored
+        set wins [twapi::find_windows -class Notepad -pids [list $np_pid] -maximize 1]
+        expr {
+              [llength $wins] == 1 &&
+              [lindex $wins 0] == $np_win
+          }
+    } -cleanup {
+        kill $np_pid -wait $end_process_timeout
+    } -result 1
+
+    test find_windows-8.1 {
+        Verify windows that are maximized are not found when -maximize is false
+    } -setup {
+        set np_pid [notepad_exec]
+        set np_win [notepad_top $np_pid]
+        twapi::maximize_window $np_win -sync
+    } -body {
+        # Note case should be ignored
+        twapi::find_windows -class Notepad -pids [list $np_pid] -maximize false
+    } -cleanup {
+        kill $np_pid -wait $end_process_timeout
+    } -result ""
+
+    test find_windows-9.0 {
+        Find windows that are minimized
+    } -setup {
+        set np_pid [notepad_exec]
+        set np_win [notepad_top $np_pid]
+        twapi::minimize_window $np_win -sync
+    } -body {
+        # Note case should be ignored
+        set wins [twapi::find_windows -class Notepad -pids [list $np_pid] -minimize true]
+        expr {
+              [llength $wins] == 1 &&
+              [lindex $wins 0] == $np_win
+          }
+    } -cleanup {
+        kill $np_pid -wait $end_process_timeout
+    } -result 1
+
+    test find_windows-9.1 {
+        Verify windows that are minimized are not found when -minimize is false
+    } -setup {
+        set np_pid [notepad_exec]
+        set np_win [notepad_top $np_pid]
+        twapi::minimize_window $np_win -sync
+    } -body {
+        # Note case should be ignored
+        twapi::find_windows -class Notepad -pids [list $np_pid] -minimize 0
+    } -cleanup {
+        kill $np_pid -wait $end_process_timeout
+    } -result ""
+
+    test find_windows-10.0 {
+        Find exactly those windows that have a maximize box (-maximizebox true)
+    } -setup {
+        set np_pid [notepad_exec nosuchfile.txt]
+        set np_win [notepad_top $np_pid]
+    } -body {
+        set wins [twapi::find_windows -match glob -text *Notepad -pids [list $np_pid] -maximizebox 1]
+        # Popup dialog has no maximize button so we should find exactly one
+        # window
+        expr {
+              [llength $wins] == 1 &&
+              [lindex $wins 0] == $np_win
+          }
+    } -cleanup {
+        kill $np_pid -wait $end_process_timeout
+    } -result 1
+
+    test find_windows-10.1 {
+        Find exactly those windows that do not have a maximize box (-maximizebox false)
+    } -setup {
+        set np_pid [notepad_exec nosuchfile.txt]
+        set popup_win [notepad_popup $np_pid]
+    } -body {
+        # Popup dialog has no maximize button so we should find exactly one
+        # window (the popup0
+        set wins [twapi::find_windows -match glob -text *Notepad -pids [list $np_pid] -maximizebox false]
+        expr {
+              [llength $wins] == 1 &&
+              [lindex $wins 0] == $popup_win
+          }
+    } -cleanup {
+        kill $np_pid -wait $end_process_timeout
+    } -result 1
+
+    test find_windows-11.0 {
+        Find exactly those windows that have a minimize box (-minimizebox true)
+    } -setup {
+        set np_pid [notepad_exec nosuchfile.txt]
+        set np_win [notepad_top $np_pid]
+    } -body {
+        set wins [twapi::find_windows -match glob -text *Notepad -pids [list $np_pid] -minimizebox 1]
+        # Popup dialog has no minimize button so we should find exactly one
+        # window
+        expr {
+              [llength $wins] == 1 &&
+              [lindex $wins 0] == $np_win
+          }
+    } -cleanup {
+        kill $np_pid -wait $end_process_timeout
+    } -result 1
+
+    test find_windows-11.1 {
+        Find exactly those windows that do not have a minimize box (-minimizebox false)
+    } -setup {
+        set np_pid [notepad_exec nosuchfile.txt]
+        set popup_win [notepad_popup $np_pid]
+    } -body {
+        # Popup dialog has no minimize button so we should find exactly one
+        # window (the popup0
+        set wins [twapi::find_windows -match glob -text *Notepad -pids [list $np_pid] -minimizebox false]
+        expr {
+              [llength $wins] == 1 &&
+              [lindex $wins 0] == $popup_win
+          }
+    } -cleanup {
+        kill $np_pid -wait $end_process_timeout
+    } -result 1
+
+    test find_windows-12.0 {
+        Find exactly those windows that are not popups (-popup false)
+    } -setup {
+        set np_pid [notepad_exec nosuchfile.txt]
+        set np_win [notepad_top $np_pid]
+    } -body {
+        set wins [twapi::find_windows -match glob -text *Notepad -pids [list $np_pid] -popup false]
+        expr {
+              [llength $wins] == 1 &&
+              [lindex $wins 0] == $np_win
+          }
+    } -cleanup {
+        kill $np_pid -wait $end_process_timeout
+    } -result 1
+
+    test find_windows-12.1 {
+        Find exactly those windows that are popups (-popup true)
+    } -setup {
+        set np_pid [notepad_exec nosuchfile.txt]
+        set popup_win [notepad_popup $np_pid]
+    } -body {
+        # Popup dialog has no maximize button so we should find exactly one
+        # window (the popup0
+        set wins [twapi::find_windows -match glob -text *Notepad -pids [list $np_pid] -popup true]
+        expr {
+              [llength $wins] == 1 &&
+              [lindex $wins 0] == $popup_win
+          }
+    } -cleanup {
+        kill $np_pid -wait $end_process_timeout
+    } -result 1
+
+    test find_windows-13.0 {
+        Find exactly those windows that are overlapped windows (-overlapped true)
+    } -setup {
+        set np_pid [notepad_exec nosuchfile.txt]
+        set np_win [notepad_top $np_pid]
+    } -body {
+        set wins [twapi::find_windows -match glob -text *Notepad -pids [list $np_pid] -overlapped true]
+        expr {
+              [llength $wins] == 1 &&
+              [lindex $wins 0] == $np_win
+          }
+    } -cleanup {
+        kill $np_pid -wait $end_process_timeout
+    } -result 1
+
+    test find_windows-13.1 {
+        Find exactly those windows that are not overlapped (-overlapped false)
+    } -setup {
+        set np_pid [notepad_exec nosuchfile.txt]
+        set np_win [notepad_top $np_pid]
+        set popup_win [notepad_popup $np_pid]
+    } -body {
+        # Popup dialog has no maximize button so we should find exactly one
+        # window (the popup0
+        set wins [twapi::find_windows -match glob -text *Notepad -pids [list $np_pid] -overlapped false]
+        expr {
+              [lsearch -exact $wins $np_win] < 0 &&
+              [lsearch -exact $wins $popup_win] >= 0
+          }
+    } -cleanup {
+        kill $np_pid -wait $end_process_timeout
+    } -result 1
+
+    test find_windows-14.0 {
+        Find those windows that have a specific style
+    } -setup {
+        set np_pid [notepad_exec nosuchfile.txt]
+        set np_win [notepad_top $np_pid]
+    } -body {
+        set wins [twapi::find_windows -pids [list $np_pid]  -style {0x1ccf0000 0x110}]
+        expr {
+              [llength $wins] == 1 &&
+              [lindex $wins 0] == $np_win
+          }
+    } -cleanup {
+        kill $np_pid -wait $end_process_timeout
+    } -result 1
+
+    test find_windows-14.1 {
+        Verify a window is not found if style does not match
+    } -setup {
+        set np_pid [notepad_exec nosuchfile.txt]
+        set np_win [notepad_top $np_pid]
+    } -body {
+        # Note style is mismatched
+        set wins [twapi::find_windows -pids [list $np_pid]  -style {0x14cf0000 0x110}]
+        llength $wins
+    } -cleanup {
+        kill $np_pid -wait $end_process_timeout
+    } -result 0
+
+    test find_windows-14.2 {
+        Verify a window is not found if extended style does not match
+    } -setup {
+        set np_pid [notepad_exec nosuchfile.txt]
+        set np_win [notepad_top $np_pid]
+        set popup_win [notepad_popup $np_pid]
+    } -body {
+        # Note extended style is mismatched
+        set wins [twapi::find_windows -pids [list $np_pid]  -style {0x1ccf0000 0x100}]
+        llength $wins
+    } -cleanup {
+        kill $np_pid -wait $end_process_timeout
+    } -result 0
+
+    test find_windows-15.0 {
+        Verify -toplevel true and -toplevel false are exclusive and encompassing
+    } -body {
+        set all    [::setops::create [twapi::find_windows]]
+        set caps   [::setops::create [twapi::find_windows -toplevel true]]
+        set nocaps [::setops::create [twapi::find_windows -toplevel false]]
+        set union  [::setops::union [list $caps $nocaps]]
+        set inter  [::setops::Intersect $caps $nocaps]
+        expr {[::setops::empty $inter] &&
+              [::setops::empty [::setops::diff $all $union]] &&
+              [::setops::empty [::setops::diff $union $all]]}
+    } -result 0
+
+    test find_windows-15.1 {
+        Find exactly those windows that are toplevel (-toplevel true)
+    } -setup {
+        set np_pid [notepad_exec nosuchfile.txt]
+        set np_win [notepad_top $np_pid]
+        set popup_win [notepad_popup $np_pid]
+    } -body {
+        set wins [twapi::find_windows -pids [list $np_pid] -toplevel true]
+        expr {
+              [lsearch -exact $wins $np_win] >= 0 &&
+              [lsearch -exact $wins $popup_win] >= 0
+          }
+    } -cleanup {
+        kill $np_pid -wait $end_process_timeout
+    } -result 1
+
+    test find_windows-15.2 {
+        Find exactly those windows that are not toplevel (-toplevel 0)
+    } -setup {
+        set np_pid [notepad_exec nosuchfile.txt]
+        set np_win [notepad_top $np_pid]
+        set popup_win [notepad_popup $np_pid]
+    } -body {
+        set wins [twapi::find_windows -pids [list $np_pid] -toplevel false]
+        expr {
+              [lsearch -exact $wins $np_win] < 0 &&
+              [lsearch -exact $wins $popup_win] < 0
+          }
+    } -cleanup {
+        kill $np_pid -wait $end_process_timeout
+    } -result 1
+
+    test find_windows-16.0 {
+        Verify -visible true and -visible false are exclusive and encompassing
+    } -body {
+        set all    [::setops::create [twapi::find_windows]]
+        set caps   [::setops::create [twapi::find_windows -visible true]]
+        set nocaps [::setops::create [twapi::find_windows -visible false]]
+        set union  [::setops::union [list $caps $nocaps]]
+        set inter  [::setops::Intersect $caps $nocaps]
+        expr {[::setops::empty $inter] &&
+              [::setops::empty [::setops::diff $all $union]] &&
+              [::setops::empty [::setops::diff $union $all]]}
+    } -result 0
+
+    test find_windows-16.1 {
+        Find exactly those windows that are visible (-visible true)
+    } -setup {
+        set np_pid [notepad_exec nosuchfile.txt]
+        set np_win [notepad_top $np_pid]
+        set popup_win [notepad_popup $np_pid]
+    } -body {
+        set wins [twapi::find_windows -pids [list $np_pid] -visible true]
+        expr {
+              [lsearch -exact  $wins $np_win] >= 0 &&
+              [lsearch -exact  $wins $popup_win] >= 0
+          }
+    } -cleanup {
+        kill $np_pid -wait $end_process_timeout
+    } -result 1
+
+    test find_windows-16.2 {
+        Find exactly those windows that are not visible (-visible 0)
+    } -setup {
+        set np_pid [notepad_exec nosuchfile.txt]
+        set np_win [notepad_top $np_pid]
+        set popup_win [notepad_popup $np_pid]
+    } -body {
+        set wins [twapi::find_windows -pids [list $np_pid] -visible false]
+        expr {
+              [lsearch -exact  $wins $np_win] < 0 &&
+              [lsearch -exact  $wins $popup_win] < 0
+          }
+    } -cleanup {
+        kill $np_pid -wait $end_process_timeout
+    } -result 1
+
+    test find_windows-17.0 {
+        Verify -messageonlywindow true and false are exclusive and encompassing
+    } -body {
+        set all    [::setops::create [twapi::find_windows]]
+        set caps   [::setops::create [twapi::find_windows -messageonlywindow true]]
+        set nocaps [::setops::create [twapi::find_windows -messageonlywindow false]]
+        set union  [::setops::union [list $caps $nocaps]]
+        set inter  [::setops::Intersect $caps $nocaps]
+        expr {[::setops::empty $inter] &&
+              [::setops::empty [::setops::diff $all $union]] &&
+              [::setops::empty [::setops::diff $union $all]]}
+    } -result 0
+
+    test find_windows-17.1 {
+        Verify -messageonlywindow true and -text cannot be used together
+    } -body {
+        twapi::find_windows -messageonlywindow true -text "something"
+    } -result "Option -text cannot be specified*-messageonly*true*" -match glob -returnCodes error
+
+    ################################################################
+
+    test get_descendent_windows-1.0 {
+        Get descendent windows
+    } -setup {
+        set np_pid [notepad_exec]
+        set np_win [notepad_top $np_pid]
+        set edit_win [twapi::find_windows -class Edit -pids [list $np_pid] -single]
+    } -body {
+        set wins [twapi::get_descendent_windows [twapi::get_desktop_window]]
+        # Both the toplevel and edit windows should be included
+        expr {
+              [lsearch -exact  $wins $np_win] >= 0 &&
+              [lsearch -exact  $wins $edit_win] >=  0
+          }
+    } -cleanup {
+        kill $np_pid -wait $end_process_timeout
+    } -result 1
+
+    ################################################################
+
+    test get_parent_window-1.0 {
+        Get parent windows
+    } -setup {
+        set np_pid [notepad_exec]
+        set np_win [notepad_top $np_pid]
+        set edit_win [twapi::find_windows -class Edit -pids [list $np_pid] -single]
+    } -body {
+        set win [twapi::get_parent_window $edit_win]
+        expr {$win == $np_win}
+    } -cleanup {
+        kill $np_pid -wait $end_process_timeout
+    } -result 1
+
+    ################################################################
+
+    test get_owner_window-1.0 {
+        Get the owner window of a toplevel window
+    } -setup {
+        set np_pid [notepad_exec nosuchfile.txt]
+        set np_win [notepad_top $np_pid]
+        set popup_win [notepad_popup $np_pid]
+    } -body {
+        twapi::get_owner_window $np_win
+    } -cleanup {
+        kill $np_pid -wait $end_process_timeout
+    } -result ""
+
+    ################################################################
+
+    test get_owner_window-1.1 {
+        Get the owner window of a popup window
+    } -setup {
+        set np_pid [notepad_exec nosuchfile.txt]
+        set np_win [notepad_top $np_pid]
+        set popup_win [notepad_popup $np_pid]
+    } -body {
+        set win [twapi::get_owner_window $popup_win]
+        expr {$win == $np_win}
+    } -cleanup {
+        kill $np_pid -wait $end_process_timeout
+    } -result 1
+
+    ################################################################
+
+    test get_child_windows-1.0 {
+        Get child windows
+    } -setup {
+        set np_pid [notepad_exec]
+        set np_win [notepad_top $np_pid]
+        set edit_win [twapi::find_windows -class Edit -pids [list $np_pid]]
+    } -body {
+        set wins [twapi::get_child_windows [twapi::get_desktop_window]]
+        # The edit window should not be included as it is not a direct child
+        expr {
+              [lsearch -exact  $wins $np_win] >= 0 &&
+              [lsearch -exact  $wins $edit_win] < 0
+          }
+    } -cleanup {
+        kill $np_pid -wait $end_process_timeout
+    } -result 1
+
+    ################################################################
+
+    test get_first_child-1.0 {
+        Get first child window
+    } -body {
+        set win [twapi::get_first_child [twapi::get_desktop_window]]
+        twapi::get_prev_sibling_window $win
+    } -result ""
+
+    ################################################################
+
+    test get_next_sibling_window-1.0 {
+        Get next sibling window
+    } -setup {
+        set dt_win [twapi::get_desktop_window]
+        set first_child [twapi::get_first_child $dt_win]
+    } -body {
+        set win [twapi::get_next_sibling_window $first_child]
+        expr {$dt_win == [twapi::get_parent_window $win]}
+    } -result 1
+
+    ################################################################
+
+    test get_prev_sibling_window-1.0 {
+        Get previous sibling window for first child
+    } -setup {
+        set dt_win [twapi::get_desktop_window]
+        set first_child [twapi::get_first_child $dt_win]
+    } -body {
+        twapi::get_prev_sibling_window $first_child
+    } -result ""
+
+    test get_prev_sibling_window-1.1 {
+        Get prev sibling window
+    } -setup {
+        set dt_win [twapi::get_desktop_window]
+        set first [twapi::get_first_child $dt_win]
+        set second [twapi::get_next_sibling_window $first]
+    } -body {
+        expr { $first == [twapi::get_prev_sibling_window $second] }
+    } -result 1
+
+    ################################################################
+
+    test get_first_sibling_window-1.0 {
+        Get first sibling window
+    } -setup {
+        set dt_win [twapi::get_desktop_window]
+        set first [twapi::get_first_child $dt_win]
+        set second [twapi::get_next_sibling_window $first]
+    } -body {
+        expr { $first == [twapi::get_first_sibling_window $second] }
+    } -result 1
+
+    ################################################################
+
+    test get_last_sibling_window-1.0 {
+        Get last sibling window
+    } -setup {
+        set dt_win [twapi::get_desktop_window]
+        set first [twapi::get_first_child $dt_win]
+    } -body {
+        set last [twapi::get_last_sibling_window $first]
+        expr {
+              [twapi::get_next_sibling_window $last] == "" &&
+              [twapi::get_parent_window $last] == $dt_win
+          }
+    } -result 1
+
+    ################################################################
+
+    test get_desktop_window-1.0 {
+        Get desktop window
+    } -setup {
+        set win [twapi::find_windows -toplevel 1 -single]
+    } -body {
+        expr {
+              [twapi::get_parent_window $win] == [twapi::get_desktop_window]
+          }
+    } -cleanup {
+    } -result 1
+
+    ################################################################
+
+    test get_shell_window-1.0 {
+        Get shell window
+    } -body {
+        # Don't really know how to verify it is a shell window other than
+        # class ?
+        twapi::get_window_class [twapi::get_shell_window]
+    } -result Progman
+
+    ################################################################
+
+    test get_window_process-1.0 {
+        Get the process for a window
+    } -setup {
+        set np_pid [notepad_exec]
+        set np_win [notepad_top $np_pid]
+    } -body {
+        expr {$np_pid == [twapi::get_window_process $np_win]}
+    } -cleanup {
+        kill $np_pid -wait $end_process_timeout
+    } -result 1
+
+    ################################################################
+
+    test get_window_thread-1.0 {
+        Get the thread for a window
+    } -setup {
+        set np_pid [notepad_exec]
+        set np_win [notepad_top $np_pid]
+    } -body {
+        expr {$np_pid == [twapi::get_thread_parent_process_id [twapi::get_window_thread $np_win]]}
+    } -cleanup {
+        kill $np_pid -wait $end_process_timeout
+    } -result 1
+
+    ################################################################
+
+    test get_window_style-1.0 {
+        Get the window style
+    } -setup {
+        set np_pid [notepad_exec]
+        set np_win [notepad_top $np_pid]
+    } -body {
+        set styles [twapi::get_window_style $np_win]
+        expr {
+              [string is integer [lindex $styles 0]] &&
+              [string is integer [lindex $styles 1]] &&
+              [lsearch -exact $styles minimizebox] >= 0 &&
+              [lsearch -exact $styles maximizebox] >= 0 &&
+              [lsearch -exact $styles overlapped] >= 0 &&
+              [lsearch -exact $styles caption] >= 0 &&
+              [lsearch -exact $styles visible] >= 0 &&
+              [lsearch -exact $styles clipsiblings] >= 0 &&
+              [lsearch -exact $styles sysmenu] >= 0
+          }
+    } -cleanup {
+        kill $np_pid -wait $end_process_timeout
+    } -result 1
+
+    ################################################################
+
+    test set_window_style-1.0 {
+        Set the window style
+    } -setup {
+        set np_pid [notepad_exec]
+        set np_win [notepad_top $np_pid]
+        foreach {oldstyle oldexstyle} [twapi::get_window_style $np_win] break
+    } -body {
+        # Turn off sysmenu
+        set newstyle [expr {$oldstyle & ~ 0x80000}]
+        # Accept files
+        set newexstyle [expr {$oldexstyle | 0x01}]
+        twapi::set_window_style $np_win $newstyle $newexstyle
+        foreach {newstylecheck newexstylecheck} [twapi::get_window_style $np_win] break
+        expr {
+              $newstyle == $newstylecheck &&
+              $newexstyle == $newexstylecheck
+          }
+    } -cleanup {
+        kill $np_pid -wait $end_process_timeout
+    } -result 1
+
+    ################################################################
+
+    test get_window_class-1.0 {
+        Get the window class
+    } -setup {
+        set np_pid [notepad_exec]
+        set np_win [notepad_top $np_pid]
+    } -body {
+        twapi::get_window_class $np_win
+    } -cleanup {
+        kill $np_pid -wait $end_process_timeout
+    } -result Notepad
+
+    ################################################################
+
+    test get_window_real_class-1.0 {
+        Get the window class
+    } -setup {
+        set np_pid [notepad_exec]
+        set np_win [notepad_top $np_pid]
+    } -body {
+        twapi::get_window_class $np_win
+    } -cleanup {
+        kill $np_pid -wait $end_process_timeout
+    } -result Notepad
+
+    ################################################################
+
+    test get_window_long-1.0 {
+        Get a window longword
+    } -setup {
+        set np_pid [notepad_exec]
+        set np_win [notepad_top $np_pid]
+    } -body {
+        set longval [twapi::get_window_long $np_win -16]
+        expr {$longval == [lindex [twapi::get_window_style $np_win] 0]}
+    } -cleanup {
+        kill $np_pid -wait $end_process_timeout
+    } -result 1
+
+    ################################################################
+
+    test set_window_long-1.0 {
+        Set a window longword
+    } -setup {
+        set np_pid [notepad_exec]
+        set np_win [notepad_top $np_pid]
+        foreach {oldstyle oldexstyle} [twapi::get_window_style $np_win] break
+    } -body {
+        # Turn off sysmenu
+        set newstyle [expr {$oldstyle & ~ 0x80000}]
+        twapi::set_window_long $np_win -16 $newstyle
+        foreach {newstylecheck newexstylecheck} [twapi::get_window_style $np_win] break
+        expr {
+              $newstyle == $newstylecheck &&
+              $oldexstyle == $newexstylecheck
+          }
+    } -cleanup {
+        kill $np_pid -wait $end_process_timeout
+    } -result 1
+
+    ################################################################
+
+    test get_window_application-1.0 {
+        Get the window application
+    } -setup {
+        set np_pid [notepad_exec]
+        set np_win [notepad_top $np_pid]
+    } -body {
+        string is integer [twapi::get_window_application $np_win]
+    } -cleanup {
+        kill $np_pid -wait $end_process_timeout
+    } -result 1
+
+    ################################################################
+
+    test get_window_id-1.0 {
+        Get the window id
+    } -setup {
+        set np_pid [notepad_exec]
+        set np_win [notepad_top $np_pid]
+    } -body {
+        string is integer [twapi::get_window_id $np_win]
+    } -cleanup {
+        kill $np_pid -wait $end_process_timeout
+    } -result 1
+
+    ################################################################
+
+    test get_window_userdata-1.0 {
+        Get the window user data
+    } -setup {
+        set np_pid [notepad_exec]
+        set np_win [notepad_top $np_pid]
+    } -body {
+        # Assumes notepad userdata is always 0
+        twapi::get_window_userdata $np_win
+    } -cleanup {
+        kill $np_pid -wait $end_process_timeout
+    } -result 0
+
+    ################################################################
+
+    test set_window_userdata-1.0 {
+        Get the window user data
+    } -setup {
+        set np_pid [notepad_exec]
+        set np_win [notepad_top $np_pid]
+    } -body {
+        # Assumes notepad userdata is always 0
+        set old_data [twapi::get_window_userdata $np_win]
+        set orig_data [twapi::set_window_userdata $np_win 1]
+        set new_data [twapi::get_window_userdata $np_win]
+        expr {
+              $old_data == $orig_data &&
+              $new_data == 1
+          }
+    } -cleanup {
+        kill $np_pid -wait $end_process_timeout
+    } -result 1
+
+    ################################################################
+
+    test get_foreground_window-1.0 {
+        Get the foreground window
+    } -setup {
+        set np_pid [notepad_exec]
+        set np_win [notepad_top $np_pid]
+    } -body {
+        expr {[twapi::get_foreground_window] == $np_win}
+    } -cleanup {
+        kill $np_pid -wait $end_process_timeout
+    } -result 1
+
+    ################################################################
+
+    test set_foreground_window-1.0 {
+        Set the foreground window
+    } -setup {
+        set np_pid [notepad_exec]
+        set np_win [notepad_top $np_pid]
+        set np_pid2 [notepad_exec]
+        set np_win2 [notepad_top $np_pid2]
+    } -body {
+        list [expr { [twapi::get_foreground_window] == $np_win2 }] \
+            [twapi::set_foreground_window $np_win] \
+            [after 100] \
+            [expr { [twapi::get_foreground_window] == $np_win}]
+    } -cleanup {
+        kill $np_pid -wait $end_process_timeout
+        kill $np_pid2 -wait $end_process_timeout
+    } -result {1 1 {} 1}
+
+    ################################################################
+
+    test set_active_window_for_thread-1.0 {
+    } -constraints {
+        nt TBD
+    } -setup {
+    } -body {
+    } -cleanup {
+    } -result TBD
+
+    ################################################################
+
+    test get_active_window_for_thread-1.0 {
+        Get the active window for a thread
+    } -setup {
+        set np_pid [notepad_exec]
+        set np_tid [lindex [lindex [twapi::get_process_info $np_pid -tids] 1] 0]
+    } -body {
+        expr {
+              [twapi::get_active_window_for_thread $np_tid] eq [notepad_top $np_pid]
+          }
+    } -cleanup {
+        kill $np_pid -wait $end_process_timeout
+    } -result 1
+
+    ################################################################
+
+    test get_focus_window_for_thread-1.0 {
+        Get the active window for a thread
+    } -setup {
+        set np_pid [notepad_exec]
+        set np_tid [lindex [lindex [twapi::get_process_info $np_pid -tids] 1] 0]
+    } -body {
+        expr {
+              [twapi::get_parent_window [twapi::get_focus_window_for_thread $np_tid]] eq [notepad_top $np_pid]
+          }
+    } -cleanup {
+        kill $np_pid -wait $end_process_timeout
+    } -result 1
+
+    ################################################################
+
+    test get_active_window_for_current_thread-1.0 {
+    } -constraints {
+        nt TBD
+    } -setup {
+    } -body {
+    } -cleanup {
+    } -result TBD
+
+    ################################################################
+
+    test redraw_window_frame-1.0 {
+        Redraw a window frame
+    } -setup {
+        set np_pid [notepad_exec]
+        set np_win [notepad_top $np_pid]
+    } -body {
+        twapi::redraw_window_frame $np_win
+    } -cleanup {
+        kill $np_pid -wait $end_process_timeout
+    } -result ""
+
+    ################################################################
+
+    test redraw_window-1.0 {
+        Redraw a window
+    } -setup {
+        set np_pid [notepad_exec]
+        set np_win [notepad_top $np_pid]
+    } -body {
+        twapi::redraw_window $np_win
+    } -cleanup {
+        kill $np_pid -wait $end_process_timeout
+    } -result ""
+
+    ################################################################
+
+    test move_window-1.0 {
+        Move a window asynchronously
+    } -setup {
+        set np_pid [notepad_exec]
+        set np_win [notepad_top $np_pid]
+    } -body {
+        twapi::move_window $np_win 20 30
+        after 100;                      # Give it time to finish
+        foreach {left top right bottom} [twapi::get_window_coordinates $np_win] break
+        expr { $left == 20 && $top == 30 }
+    } -cleanup {
+        kill $np_pid -wait $end_process_timeout
+    } -result 1
+
+    ###
+
+    test move_window-1.1 {
+        Move a window synchronously
+    } -setup {
+        set np_pid [notepad_exec]
+        set np_win [notepad_top $np_pid]
+    } -body {
+        twapi::move_window $np_win 20 30 -sync
+        foreach {left top right bottom} [twapi::get_window_coordinates $np_win] break
+        expr { $left == 20 && $top == 30 }
+    } -cleanup {
+        kill $np_pid -wait $end_process_timeout
+    } -result 1
+
+    ################################################################
+
+    test resize_window-1.0 {
+        Resize a window
+    } -setup {
+        set np_pid [notepad_exec]
+        set np_win [notepad_top $np_pid]
+    } -body {
+        twapi::resize_window $np_win 400 600
+        after 100;                      # Give it time to finish
+        foreach {left top right bottom} [twapi::get_window_coordinates $np_win] break
+        expr { ($right-$left) == 400 && ($bottom-$top) == 600 }
+    } -cleanup {
+        kill $np_pid -wait $end_process_timeout
+    } -result 1
+
+    test resize_window-1.1 {
+        Resize a window synchronously
+    } -setup {
+        set np_pid [notepad_exec]
+        set np_win [notepad_top $np_pid]
+    } -body {
+        twapi::resize_window $np_win 400 600 -sync
+        foreach {left top right bottom} [twapi::get_window_coordinates $np_win] break
+        expr { ($right-$left) == 400 && ($bottom-$top) == 600 }
+    } -cleanup {
+        kill $np_pid -wait $end_process_timeout
+    } -result 1
+
+    ################################################################
+
+    test set_window_zorder-1.0 {
+        Set window zorder right after another
+    } -setup {
+        set np_pid [notepad_exec]
+        set np_win [notepad_top $np_pid]
+        set np_pid2 [notepad_exec]
+        set np_win2 [notepad_top $np_pid2]
+    } -body {
+        twapi::set_window_zorder $np_win2 $np_win
+    } -cleanup {
+        kill $np_pid -wait $end_process_timeout
+        kill $np_pid2 -wait $end_process_timeout
+    } -result ""
+
+    test set_window_zorder-2.0 {
+        Set window zorder to the top
+    } -setup {
+        set np_pid [notepad_exec]
+        set np_win [notepad_top $np_pid]
+    } -body {
+        twapi::set_window_zorder $np_win top
+    } -cleanup {
+        kill $np_pid -wait $end_process_timeout
+    } -result ""
+
+    test set_window_zorder-3.0 {
+        Set window zorder to the bottom
+    } -setup {
+        set np_pid [notepad_exec]
+        set np_win [notepad_top $np_pid]
+    } -body {
+        twapi::set_window_zorder $np_win bottom
+    } -cleanup {
+        kill $np_pid -wait $end_process_timeout
+    } -result ""
+
+    test set_window_zorder-4.0 {
+        Set window zorder to the top most
+    } -setup {
+        set np_pid [notepad_exec]
+        set np_win [notepad_top $np_pid]
+    } -body {
+        twapi::set_window_zorder $np_win toplayer
+    } -cleanup {
+        kill $np_pid -wait $end_process_timeout
+    } -result ""
+
+    test set_window_zorder-5.0 {
+        Set window zorder to the bottom most
+    } -setup {
+        set np_pid [notepad_exec]
+        set np_win [notepad_top $np_pid]
+    } -body {
+        twapi::set_window_zorder $np_win bottomlayer
+    } -cleanup {
+        kill $np_pid -wait $end_process_timeout
+    } -result "" 
+
+    ################################################################
+
+    test show_window-1.0 {
+        Show a window
+    } -setup {
+        set np_pid [notepad_exec]
+        set np_win [notepad_top $np_pid]
+    } -body {
+        twapi::show_window $np_win
+    } -cleanup {
+        kill $np_pid -wait $end_process_timeout
+    } -result 1
+
+    test show_window-2.0 {
+        Show a window and activate it (-activate)
+    } -setup {
+        set np_pid [notepad_exec]
+        set np_win [notepad_top $np_pid]
+    } -body {
+        # TBD - how to verify it was actually activated?
+        twapi::show_window $np_win -activate
+    } -cleanup {
+        kill $np_pid -wait $end_process_timeout
+    } -result 1
+
+    test show_window-3.0 {
+        Show a window restoring it from minimized (-normal)
+    } -setup {
+        set np_pid [notepad_exec]
+        set np_win [notepad_top $np_pid]
+        twapi::minimize_window $np_win -sync
+    } -body {
+        twapi::show_window $np_win -normal
+        after 50;                       # Give it a chance to take effect
+        twapi::window_minimized $np_win
+    } -cleanup {
+        kill $np_pid -wait $end_process_timeout
+    } -result 0
+
+    test show_window-4.0 {
+        Show a window synchrously (-normal -sync)
+    } -setup {
+        set np_pid [notepad_exec]
+        set np_win [notepad_top $np_pid]
+        twapi::maximize_window $np_win -sync
+    } -body {
+        twapi::show_window $np_win -normal -sync
+        # Note we -sync means we don't need to wait
+        twapi::window_maximized $np_win
+    } -cleanup {
+        kill $np_pid -wait $end_process_timeout
+    } -result 0
+
+    test show_window-5.0 {
+        Show a window in startup coords (-startup)
+    } -setup {
+        set np_pid [notepad_exec]
+        set np_win [notepad_top $np_pid]
+        twapi::maximize_window $np_win -sync
+    } -body {
+        twapi::show_window $np_win -startup
+        after 50;                       # Give it a chance to take effect
+        twapi::window_maximized $np_win
+    } -cleanup {
+        kill $np_pid -wait $end_process_timeout
+    } -result 0
+
+    ################################################################
+
+    test hide_window-1.0 {
+        Hide a window asynchronously
+    } -setup {
+        set np_pid [notepad_exec]
+        set np_win [notepad_top $np_pid]
+    } -body {
+        twapi::hide_window $np_win
+        after 50;                       # Wait for it to take effect
+        twapi::window_visible $np_win
+    } -cleanup {
+        kill $np_pid -wait $end_process_timeout
+    } -result 0
+
+    test hide_window-2.0 {
+        Hide a window synchronously (-sync)
+    } -setup {
+        set np_pid [notepad_exec]
+        set np_win [notepad_top $np_pid]
+    } -body {
+        twapi::hide_window $np_win  -sync
+        # Note we -sync means we don't need to wait
+        twapi::window_visible $np_win
+    } -cleanup {
+        kill $np_pid -wait $end_process_timeout
+    } -result 0
+
+    ################################################################
+
+    test restore_window-1.0 {
+        Restore a window
+    } -setup {
+        set np_pid [notepad_exec]
+        set np_win [notepad_top $np_pid]
+        twapi::minimize_window $np_win -sync
+    } -body {
+        twapi::restore_window $np_win
+        twapi::window_minimized $np_win
+    } -cleanup {
+        kill $np_pid -wait $end_process_timeout
+    } -result 0
+
+    test restore_window-2.0 {
+        Restore a window using -sync option
+    } -setup {
+        set np_pid [notepad_exec]
+        set np_win [notepad_top $np_pid]
+        twapi::minimize_window $np_win -sync
+    } -body {
+        twapi::restore_window $np_win -sync
+        twapi::window_minimized $np_win
+    } -cleanup {
+        kill $np_pid -wait $end_process_timeout
+    } -result 0
+
+    test restore_window-3.0 {
+        Restore a window using -activate option
+    } -setup {
+        set np_pid [notepad_exec]
+        set np_win [notepad_top $np_pid]
+        twapi::minimize_window $np_win -sync
+    } -body {
+        twapi::restore_window $np_win -activate -sync
+        twapi::window_minimized $np_win
+    } -cleanup {
+        kill $np_pid -wait $end_process_timeout
+    } -result 0
+
+    ################################################################
+
+    test maximize_window-1.0 {
+        Maximize a window
+    } -setup {
+        set np_pid [notepad_exec]
+        set np_win [notepad_top $np_pid]
+    } -body {
+        set was_visible [twapi::maximize_window $np_win]
+        after 50;                       # Give it a chance to take effect
+        expr {$was_visible && [twapi::window_maximized $np_win]}
+    } -cleanup {
+        kill $np_pid -wait $end_process_timeout
+    } -result 1
+
+    test maximize_window-2.0 {
+        Maximize a window synchronously
+    } -setup {
+        set np_pid [notepad_exec]
+        set np_win [notepad_top $np_pid]
+        twapi::hide_window $np_win -sync
+    } -body {
+        set was_visible [twapi::maximize_window $np_win -sync]
+        expr {$was_visible == 0 && [twapi::window_maximized $np_win]}
+    } -cleanup {
+        kill $np_pid -wait $end_process_timeout
+    } -result 1
+
+    ################################################################
+
+    test minimize_window-1.0 {
+        Minimize a window
+    } -setup {
+        set np_pid [notepad_exec]
+        set np_win [notepad_top $np_pid]
+    } -body {
+        set was_visible [twapi::minimize_window $np_win]
+        after 50;                       # Give it a chance to take effect
+        expr {$was_visible && [twapi::window_minimized $np_win]}
+    } -cleanup {
+        kill $np_pid -wait $end_process_timeout
+    } -result 1
+
+    test minimize_window-2.0 {
+        Minimize a window synchronously
+    } -setup {
+        set np_pid [notepad_exec]
+        set np_win [notepad_top $np_pid]
+        twapi::hide_window $np_win -sync
+    } -body {
+        set was_visible [twapi::minimize_window $np_win -sync]
+        expr {$was_visible == 0 && [twapi::window_minimized $np_win]}
+    } -cleanup {
+        kill $np_pid -wait $end_process_timeout
+    } -result 1
+
+    test minimize_window-3.0 {
+        Minimize a window synchronously with -activate
+    } -setup {
+        set np_pid [notepad_exec]
+        set np_win [notepad_top $np_pid]
+    } -body {
+        set was_visible [twapi::minimize_window $np_win -sync -activate]
+        expr {$was_visible && [twapi::window_minimized $np_win]}
+    } -cleanup {
+        kill $np_pid -wait $end_process_timeout
+    } -result 1
+
+    test minimize_window-4.0 {
+        Minimize a window synchronously with -shownext
+    } -setup {
+        set np_pid [notepad_exec]
+        set np_win [notepad_top $np_pid]
+    } -body {
+        set was_visible [twapi::minimize_window $np_win -sync -shownext]
+        expr {$was_visible && [twapi::window_minimized $np_win]}
+    } -cleanup {
+        kill $np_pid -wait $end_process_timeout
+    } -result 1
+
+    ################################################################
+
+    test hide_owned_popups-1.0 {
+        Hide owned popups for a window
+    } -setup {
+        set np_pid [notepad_exec nosuchfile.txt]
+        set np_win [notepad_top $np_pid]
+        set popup_win [notepad_popup $np_pid]
+    } -body {
+        expr {
+              [twapi::hide_owned_popups $np_win] == "" &&
+              ! [twapi::window_visible $popup_win]
+          }
+    } -cleanup {
+        kill $np_pid -wait $end_process_timeout
+    } -result 1
+
+    ################################################################
+
+    test show_owned_popups-1.0 {
+        Show owned popups for a window
+    } -setup {
+        set np_pid [notepad_exec nosuchfile.txt]
+        set np_win [notepad_top $np_pid]
+        set popup_win [notepad_popup $np_pid]
+    } -body {
+        expr {
+              [twapi::hide_owned_popups $np_win] == "" &&
+              ! [twapi::window_visible $popup_win] &&
+              [twapi::show_owned_popups $np_win] == "" &&
+              [twapi::window_visible $popup_win]
+          }
+    } -cleanup {
+        kill $np_pid -wait $end_process_timeout
+    } -result 1
+
+    ################################################################
+
+    test close_window-1.0 {
+        Close a window
+    } -setup {
+        set np_pid [notepad_exec]
+        set np_win [notepad_top $np_pid]
+    } -body {
+        twapi::close_window $np_win
+        after 50;                       # Give it a chance
+        twapi::process_exists $np_pid
+    } -result 0
+
+    test close_window-2.0 {
+        Close a window asynchronously (-wait 0)
+    } -setup {
+        set np_pid [notepad_exec]
+        set np_win [notepad_top $np_pid]
+    } -body {
+        twapi::close_window $np_win -wait 0
+        after 50
+        twapi::process_exists $np_pid
+    } -result 0
+
+    test close_window-3.0 {
+        Close a window synchronously (-wait)
+    } -setup {
+        set np_pid [notepad_exec]
+        set np_win [notepad_top $np_pid]
+    } -body {
+        twapi::close_window $np_win  -wait 500
+        twapi::process_exists $np_pid
+    } -result 0
+
+    test close_window-4.0 {
+        Close an Explorer window
+    } -setup {
+        twapi::shell_execute -path [pwd];   # Shows current folder
+        set win [wait_for_window -toplevel 1 -text [file tail [pwd]]* -match glob -pids [list [get_explorer_pid]]]
+    } -body {
+        # This test specifically tests Explorer window because
+        # the old 2.2 method of SendMessage did not work for Explorer
+        twapi::close_window $win  -wait 500
+        twapi::window_exists $win
+    } -result 0
+
+    ################################################################
+
+    test window_minimized-1.0 {
+        Check if window minimized (false)
+    } -setup {
+        set np_pid [notepad_exec]
+        set np_win [notepad_top $np_pid]
+    } -body {
+        twapi::window_minimized $np_win
+    } -cleanup {
+        kill $np_pid -wait $end_process_timeout
+    } -result 0
+
+    test window_minimized-1.1 {
+        Check if window minimized (true)
+    } -setup {
+        set np_pid [notepad_exec]
+        set np_win [notepad_top $np_pid]
+        twapi::minimize_window $np_win -sync
+    } -body {
+        twapi::window_minimized $np_win
+    } -cleanup {
+        kill $np_pid -wait $end_process_timeout
+    } -result 1
+
+    ################################################################
+
+    test window_maximized-1.0 {
+        Check if window maximized (false)
+    } -setup {
+        set np_pid [notepad_exec]
+        set np_win [notepad_top $np_pid]
+    } -body {
+        twapi::window_maximized $np_win
+    } -cleanup {
+        kill $np_pid -wait $end_process_timeout
+    } -result 0
+
+    test window_maximized-1.1 {
+        Check if window maximized (true)
+    } -setup {
+        set np_pid [notepad_exec]
+        set np_win [notepad_top $np_pid]
+        twapi::maximize_window $np_win -sync
+    } -body {
+        twapi::window_maximized $np_win
+    } -cleanup {
+        kill $np_pid -wait $end_process_timeout
+    } -result 1
+
+    ################################################################
+
+    test window_visible-1.0 {
+        Check if a window is visible (false)
+    } -setup {
+        set np_pid [notepad_exec]
+        set np_win [notepad_top $np_pid]
+    } -body {
+        twapi::hide_window $np_win  -sync
+        # Note we -sync means we don't need to wait
+        twapi::window_visible $np_win
+    } -cleanup {
+        kill $np_pid -wait $end_process_timeout
+    } -result 0
+
+    test window_visible-1.1 {
+        Check if a window is visible (true)
+    } -setup {
+        set np_pid [notepad_exec]
+        set np_win [notepad_top $np_pid]
+    } -body {
+        twapi::window_visible $np_win
+    } -cleanup {
+        kill $np_pid -wait $end_process_timeout
+    } -result 1
+
+    ################################################################
+
+    test window_exists-1.0 {
+        Check if a window exists (false)
+    } -setup {
+        set np_pid [notepad_exec]
+        set np_win [notepad_top $np_pid]
+        kill $np_pid -wait $end_process_timeout
+    } -body {
+        twapi::window_exists $np_win
+    } -cleanup {
+    } -result 0
+
+    test window_exists-1.1 {
+        Check if a window exists (true)
+    } -setup {
+        set np_pid [notepad_exec]
+        set np_win [notepad_top $np_pid]
+    } -body {
+        twapi::window_exists $np_win
+    } -cleanup {
+        kill $np_pid -wait $end_process_timeout
+    } -result 1
+
+    ################################################################
+
+    test window_unicode_enabled-1.0 {
+        Check if a window accpets Unicode input
+    } -setup {
+        set np_pid [notepad_exec]
+        set np_win [notepad_top $np_pid]
+    } -body {
+        twapi::window_unicode_enabled $np_win
+    } -cleanup {
+        kill $np_pid -wait $end_process_timeout
+    } -result 1
+
+
+    ################################################################
+
+    test window_is_child-1.0 {
+        Check if a window is a child of another (true)
+    } -setup {
+        set np_pid [notepad_exec]
+        set np_win [notepad_top $np_pid]
+        set edit_win [twapi::find_windows -class Edit -pids [list $np_pid] -single]
+    } -body {
+        twapi::window_is_child $np_win $edit_win
+    } -cleanup {
+        kill $np_pid -wait $end_process_timeout
+    } -result 1
+
+    test window_is_child-1.1 {
+        Check if a window is a child of another (false)
+    } -setup {
+        set np_pid [notepad_exec nosuchfile.txt]
+        set np_win [notepad_top $np_pid]
+        set popup_win [notepad_popup $np_pid]
+    } -body {
+        twapi::window_is_child $np_win $popup_win
+    } -cleanup {
+        kill $np_pid -wait $end_process_timeout
+    } -result 0
+
+    ################################################################
+
+    test set_focus-1.0 {
+        Set focus to a window
+    } -setup {
+        set np_pid [notepad_exec]
+        set np_win [notepad_top $np_pid]
+        set edit_win [twapi::find_windows -class Edit -pids [list $np_pid] -single]
+    } -body {
+        # TBD - need a better test to test that it does have focus
+        expr {[twapi::set_focus $np_win] == $edit_win}
+    } -cleanup {
+        kill $np_pid -wait $end_process_timeout
+    } -result 1
+
+    ################################################################
+
+    test flash_window_caption-1.0 {
+        Flash a window caption
+    } -setup {
+        set np_pid [notepad_exec]
+        set np_win [notepad_top $np_pid]
+    } -body {
+        string is integer [twapi::flash_window_caption $np_win]
+    } -cleanup {
+        kill $np_pid -wait $end_process_timeout
+    } -result 1
+
+    test flash_window_caption-1.1 {
+        Flash a window caption (-toggle)
+    } -setup {
+        set np_pid [notepad_exec]
+        set np_win [notepad_top $np_pid]
+    } -body {
+        string is integer [twapi::flash_window_caption $np_win -toggle]
+    } -cleanup {
+        kill $np_pid -wait $end_process_timeout
+    } -result 1
+
+    ################################################################
+
+    test flash_window-1.0 {
+        Flash a window
+    } -setup {
+        set np_pid [notepad_exec]
+        set np_win [notepad_top $np_pid]
+    } -body {
+        string is integer -strict [twapi::flash_window $np_win]
+    } -cleanup {
+        kill $np_pid -wait $end_process_timeout
+    } -result 1
+
+    test flash_window-2.0 {
+        Flash a window a specific number of times
+    } -setup {
+        set np_pid [notepad_exec]
+        set np_win [notepad_top $np_pid]
+    } -body {
+        string is integer -strict [twapi::flash_window $np_win -count 5]
+    } -cleanup {
+        kill $np_pid -wait $end_process_timeout
+    } -result 1
+
+    test flash_window-3.0 {
+        Flash a window caption without flashing the taskbar
+    } -setup {
+        set np_pid [notepad_exec]
+        set np_win [notepad_top $np_pid]
+    } -body {
+        string is integer -strict [twapi::flash_window $np_win -notaskbar]
+    } -cleanup {
+        kill $np_pid -wait $end_process_timeout
+    } -result 1
+
+    test flash_window-4.0 {
+        Flash a window taskbar icon without flashing the caption
+    } -setup {
+        set np_pid [notepad_exec]
+        set np_win [notepad_top $np_pid]
+    } -body {
+        string is integer -strict [twapi::flash_window $np_win -nocaption]
+    } -cleanup {
+        kill $np_pid -wait $end_process_timeout
+    } -result 1
+
+    test flash_window-5.0 {
+        Flash a window for a period of time
+    } -setup {
+        set np_pid [notepad_exec]
+        set np_win [notepad_top $np_pid]
+    } -body {
+        twapi::flash_window $np_win -start
+        after 5000
+        string is integer -strict [twapi::flash_window $np_win -stop]
+    } -cleanup {
+        kill $np_pid -wait $end_process_timeout
+    } -result 1
+
+    ################################################################
+
+    test arrange_icons-1.0 {
+        Arrange desktop icons
+    } -body {
+        string is integer [twapi::arrange_icons]
+    } -result 1
+
+    test arrange_icons-1.1 {
+        Arrange icons for a window
+    } -constraints {
+        systemmodificationok
+    } -body {
+        string is integer [twapi::arrange_icons [twapi::get_desktop_window]]
+    } -result 1
+
+
+    ################################################################
+
+    test get_window_text-1.0 {
+        Get a window text
+    } -setup {
+        set np_pid [notepad_exec]
+        set np_win [notepad_top $np_pid]
+    } -body {
+        twapi::get_window_text $np_win
+    } -cleanup {
+        kill $np_pid -wait $end_process_timeout
+    } -result "Untitled - Notepad"
+
+    ################################################################
+
+    test set_window_text-1.0 {
+        Set window text
+    } -setup {
+        set np_pid [notepad_exec]
+        set np_win [notepad_top $np_pid]
+    } -body {
+        twapi::set_window_text $np_win "New Title"
+        twapi::get_window_text $np_win
+    } -cleanup {
+        kill $np_pid -wait $end_process_timeout
+    } -result "New Title"
+
+    ################################################################
+
+    test get_window_client_area_size-1.0 {
+        Get size of a window's client area
+    } -setup {
+        set np_pid [notepad_exec]
+        set np_win [notepad_top $np_pid]
+    } -body {
+        foreach {w h} [twapi::get_window_client_area_size $np_win] break
+        twapi::minimize_window $np_win -sync
+        foreach {minw minh} [twapi::get_window_client_area_size $np_win] break
+        expr {
+              [string is integer $w] &&
+              [string is integer $h] &&
+              $minw == 0 &&
+              $minh == 0
+          }
+    } -cleanup {
+        kill $np_pid -wait $end_process_timeout
+    } -result 1
+
+    ################################################################
+
+    test get_window_coordinates-1.0 {
+        Get a window's coordinates
+    } -setup {
+        set np_pid [notepad_exec]
+        set np_win [notepad_top $np_pid]
+    } -body {
+        foreach {left top right bottom} [twapi::get_window_coordinates $np_win] break
+        expr { $right > $left && $bottom > $top }
+    } -cleanup {
+        kill $np_pid -wait $end_process_timeout
+    } -result 1
+
+    ################################################################
+
+    test get_window_at_location-1.0 {
+        Get the window at a screen location
+    } -setup {
+        set np_pid [notepad_exec]
+        set np_win [notepad_top $np_pid]
+        twapi::set_window_zorder $np_win toplayer
+    } -body {
+        foreach {left top right bottom} [twapi::get_window_coordinates $np_win] break
+        # ON XP, window edges are curved so add an increment
+        incr left $button_edge_offset
+        incr top $button_edge_offset
+        set win [twapi::get_window_at_location $left $top]
+        expr { $win == $np_win }
+    } -cleanup {
+        kill $np_pid -wait $end_process_timeout
+    } -result 1
+
+    ################################################################
+
+    test invalidate_screen_region-1.0 {
+        Invalidate the screen
+    } -body {
+        # TBD - how to check results?
+        twapi::invalidate_screen_region
+    } -result ""
+
+    test invalidate_screen_region-1.1 {
+        Invalidate the screen erasing the background
+    } -body {
+        # TBD - how to check results?
+        twapi::invalidate_screen_region -bgerase
+    } -result ""
+
+    test invalidate_screen_region-2.0 {
+        Invalidate a region of the screen
+    } -body {
+        # TBD - how to check results?
+        twapi::invalidate_screen_region -rect {50 50 200 200}
+    } -result ""
+
+    test invalidate_screen_region-2.1 {
+        Invalidate a region of the screen erasing the background
+    } -body {
+        # TBD - how to check results?
+        twapi::invalidate_screen_region -rect {50 50 200 200} -bgerase
+    } -result ""
+
+    test invalidate_screen_region-3.0 {
+        Invalidate a window
+    } -setup {
+        set np_pid [notepad_exec]
+        set np_win [notepad_top $np_pid]
+    } -body {
+        # TBD - how to check results?
+        twapi::invalidate_screen_region -hwin $np_win
+    } -cleanup {
+        kill $np_pid -wait $end_process_timeout
+    } -result ""
+
+    test invalidate_screen_region-3.1 {
+        Invalidate a window erasing the background
+    } -setup {
+        set np_pid [notepad_exec]
+        set np_win [notepad_top $np_pid]
+    } -body {
+        # TBD - how to check results?
+        twapi::invalidate_screen_region -hwin $np_win -bgerase
+    } -cleanup {
+        kill $np_pid -wait $end_process_timeout
+    } -result ""
+
+    ################################################################
+
+    test get_caret_blink_time-1.0 {
+        Get the blink time of a caret
+    } -body {
+        string is integer [twapi::get_caret_blink_time]
+    } -result 1
+
+    ################################################################
+
+    test set_caret_blink_time-1.0 {
+        Set the blink time of a caret
+    } -setup {
+        set old_blink [twapi::get_caret_blink_time]
+    } -body {
+        set new_blink [expr {$old_blink+1000}]
+        twapi::set_caret_blink_time $new_blink
+        expr {[twapi::get_caret_blink_time] == $new_blink}
+    } -result 1
+
+    ################################################################
+
+    test hide_caret-1.0 {
+        Hide the caret
+    } -constraints {
+        systemmodificationok TBD
+    } -body {
+        # TBD - returns access denied - probably needs to run in
+        # a Win32 process, not a console shell
+        twapi::hide_caret
+    } -result ""
+
+    ################################################################
+
+    test show_caret-1.0 {
+        Show the caret
+    } -constraints {
+        systemmodificationok TBD
+    } -body {
+        # TBD - returns access denied - probably needs to run in
+        # a Win32 process, not a console shell
+        twapi::show_caret
+    } -result ""
+
+    ################################################################
+
+    test get_caret_location-1.0 {
+        Get the caret location
+    } -body {
+        foreach {x y} [twapi::get_caret_location] break
+        expr {[string is integer $x] && [string is integer $y]}
+    } -result 1
+
+    ################################################################
+
+    test get_display_size-1.0 {
+        Get the size of the display
+    } -body {
+        foreach {x y} [twapi::get_display_size] break
+        expr { [string is integer $x] && [string is integer $y] }
+    } -result 1
+
+
+    ################################################################
+
+    test get_desktop_workarea-1.0 {
+    } -body {
+        set coords [twapi::get_desktop_workarea]
+        foreach {left top right bottom} $coords break
+        expr {[llength $coords] == 4 &&
+              [string is integer -strict $left] &&
+              [string is integer -strict $left] &&
+              [string is integer -strict $left] &&
+              [string is integer -strict $left] &&
+              [string is integer -strict $left]}
+    } -result 1
+
+    ################################################################
+
+    test get_desktop_wallpaper-1.0 {
+    } -body {
+        set path [twapi::get_desktop_wallpaper]
+        expr {[string length $path] == 0 || [file exists $path]}
+    } -result 1
+
+    ################################################################
+
+    test set_desktop_wallpaper-1.0 {
+	Set desktop wallpaper
+    } -constraints {
+        systemmodificationok
+    } -setup {
+        set orig_path [twapi::get_desktop_wallpaper]
+    } -body {
+	# Note we do not ask user if wallpaper changed, because
+	# windows will not change it immediately, if -persist is not
+	# specified and originally desktop had no wallpaper at all
+	set path [file join [tcltest::testsDirectory] bitmap.bmp]
+	if {![file exists $path]} {
+	    set path [file join [tcltest::testsDirectory] rctest bitmap.bmp]
+	}
+        twapi::set_desktop_wallpaper $path
+	equal_paths $path [twapi::get_desktop_wallpaper]
+    } -cleanup {
+        twapi::set_desktop_wallpaper $orig_path
+    } -result 1
+
+    test set_desktop_wallpaper-1.1 {
+    } -constraints {
+        systemmodificationok userInteraction
+    } -setup {
+        set orig_path [twapi::get_desktop_wallpaper]
+    } -body {
+	set path [file join [tcltest::testsDirectory] bitmap.bmp]
+	if {![file exists $path]} {
+	    set path [file join [tcltest::testsDirectory] rctest bitmap.bmp]
+	}
+        twapi::set_desktop_wallpaper $path -persist
+        yesno "Did the desktop change?"
+    } -cleanup {
+        twapi::set_desktop_wallpaper $orig_path -persist
+    } -result 1
+
+    ################################################################
+
+    test get_display_devices-1.0 {
+        Get display devices
+    } -body {
+        set devs [twapi::get_display_devices]
+        foreach dev $devs {
+            verify_kl_fields $dev {
+                -description
+                -desktop
+                -disconnect
+                -flags
+                -id
+                -key
+                -mirroring
+                -modespruned
+                -multidriver
+                -name
+                -primary
+                -remote
+                -removable
+                -vgacompatible
+            }
+        }
+        expr {[llength $devs] > 0}
+    } -result 1
+
+    ################################################################
+
+    test get_display_monitors-1.0 {
+        Get display monitors
+    } -body {
+        set monitors [twapi::get_display_monitors]
+        foreach monitor $monitors {
+            verify_kl_fields $monitor {
+                -description
+                -flags
+                -id
+                -key
+                -name
+                -active
+                -attached
+            }
+        }
+        expr {[llength $monitors] > 0}
+    } -result 1
+
+    test get_display_monitors-2.0 {
+        Get active display monitors
+    } -body {
+        set monitors [twapi::get_display_monitors -activeonly]
+        set active true
+        foreach monitor $monitors {
+            verify_kl_fields $monitor {
+                -description
+                -flags
+                -id
+                -key
+                -name
+                -active
+                -attached
+            }
+            set active [expr {$active && [twapi::kl_get $monitor -active]}]
+        }
+        expr {[llength $monitors] > 0 && $active}
+    } -result 1
+
+    test get_display_monitors-3.0 {
+        Get display monitors for a display device
+    } -setup {
+        set devicename [twapi::kl_get [lindex [twapi::get_display_devices] 0] -name]
+    } -body {
+        set monitors [twapi::get_display_monitors -device $devicename]
+        set allmatch true
+        foreach monitor $monitors {
+            verify_kl_fields $monitor {
+                -description
+                -flags
+                -id
+                -key
+                -name
+                -active
+                -attached
+            }
+            if {![string match -nocase [string map {\\ \\\\} ${devicename}]* [twapi::kl_get $monitor -name]]} {
+                set allmatch false
+            }
+        }
+        # Note there is the possibility that llength might be 0 if this
+        # is not the primary device. We ignore that for now
+        expr {$allmatch && [llength $monitors] > 0}
+    } -result 1
+
+    ################################################################
+
+    test get_display_monitor_from_window-1.0 {
+        Get display monitor handle from window
+    } -body {
+        twapi::get_display_monitor_from_window [twapi::get_desktop_window]
+    } -result {\d+\s+HMONITOR} -match regexp
+
+    test get_display_monitor_from_window-1.1 {
+        Get display monitor handle from Tk window path
+    } -setup {
+        package require Tk
+    } -body {
+        twapi::get_display_monitor_from_window .
+    } -result {\d+\s+HMONITOR} -match regexp
+
+    test get_display_monitor_from_window-2.0 {
+        Get display monitor handle defaulting to nearest
+    } -setup {
+        package require Tk
+    } -body {
+        wm iconify .
+        update
+        twapi::get_display_monitor_from_window . -default nearest
+    } -result {\d+\s+HMONITOR} -match regexp
+
+    test get_display_monitor_from_window-3.0 {
+        Get display monitor handle defaulting to primary display
+    } -setup {
+        package require Tk
+    } -body {
+        # MOve it off screen
+        wm geometry . +20000+20000
+        update
+        twapi::get_display_monitor_from_window . -default primary
+    } -result {\d+\s+HMONITOR} -match regexp
+
+    ################################################################
+
+    test get_display_monitor_from_point-1.0 {
+        Get display monitor handle for a virtual screen point
+    } -body {
+        twapi::get_display_monitor_from_point 10 10
+    } -result {\d+\s+HMONITOR} -match regexp
+
+    test get_display_monitor_from_point-2.0 {
+        Get display monitor handle defaulting to nearest
+    } -body {
+        twapi::get_display_monitor_from_point 10000 10000 -default nearest
+    } -result {\d+\s+HMONITOR} -match regexp
+
+    test get_display_monitor_from_point-3.0 {
+        Get display monitor handle defaulting to primary display
+    } -body {
+        twapi::get_display_monitor_from_point 10000 10000 -default primary
+    } -result {\d+\s+HMONITOR} -match regexp
+
+    ################################################################
+
+    test get_display_monitor_from_rect-1.0 {
+        Get display monitor handle for a virtual screen rectangle
+    } -body {
+        twapi::get_display_monitor_from_rect {10 10 100 100}
+    } -result {\d+\s+HMONITOR} -match regexp
+
+    test get_display_monitor_from_rect-2.0 {
+        Get display monitor handle defaulting to nearest
+    } -body {
+        twapi::get_display_monitor_from_rect {-10 -10 -20 -20} -default nearest
+    } -result {\d+\s+HMONITOR} -match regexp
+
+    test get_display_monitor_from_rect-3.0 {
+        Get display monitor handle defaulting to primary display
+    } -body {
+        twapi::get_display_monitor_from_rect {-10 -10 -20 -20} -default primary
+    } -result {\d+\s+HMONITOR} -match regexp
+
+    ################################################################
+
+    test get_display_monitor_info-1.0 {
+        Get display monitor information
+    } -body {
+        verify_kl_fields [twapi::get_display_monitor_info [twapi::get_display_monitor_from_rect {10 10 100 100}]] {-extent -workarea -primary -name}
+    } -result ""
+
+    ################################################################
+
+    test get_multiple_display_monitor_info-1.0 {
+        Get display monitor information for all monitors
+    } -body {
+        set data [twapi::get_multiple_display_monitor_info]
+        verify_list_kl_fields $data {-extent -workarea -primary -name}
+        expr {[llength $data] >= 1}
+    } -result 1
+
+    ################################################################
+
+    test configure_window_titlebar-1.0 {
+        Configure title bar visiblity
+    } -constraints {
+        userInteraction
+    } -setup {
+        set np_pid [notepad_exec]
+        set np_win [notepad_top $np_pid]
+    } -body {
+        twapi::configure_window_titlebar $np_win -visible 0
+        after 100;               # Let change take place
+        set invisible [yesno "Is the notepad title bar HIDDEN?"]
+        twapi::configure_window_titlebar $np_win -visible 1
+        after 100;               # Let change take place
+        set visible [yesno "Is the notepad title bar VISIBLE?"]
+        list $invisible $visible
+    } -cleanup {
+        kill $np_pid
+    } -result {1 1}
+
+    test configure_window_titlebar-2.0 {
+        Configure title bar system menu
+    } -constraints {
+        userInteraction
+    } -setup {
+        set np_pid [notepad_exec]
+        set np_win [notepad_top $np_pid]
+    } -body {
+        twapi::configure_window_titlebar $np_win -sysmenu 0
+        after 100;               # Let change take place
+        set invisible [yesno "Is the notepad system menu HIDDEN?"]
+        twapi::configure_window_titlebar $np_win -sysmenu 1
+        after 100;               # Let change take place
+        set visible [yesno "Is the notepad system menu VISIBLE?"]
+        list $invisible $visible
+    } -cleanup {
+        kill $np_pid
+    } -result {1 1}
+
+    test configure_window_titlebar-3.0 {
+        Configure title bar minimize box
+    } -constraints {
+        userInteraction
+    } -setup {
+        set np_pid [notepad_exec]
+        set np_win [notepad_top $np_pid]
+    } -body {
+        twapi::configure_window_titlebar $np_win -minimizebox 0
+        after 100;               # Let change take place
+        set invisible [yesno "Is the notepad window minimize box HIDDEN or DISABLED?"]
+        twapi::configure_window_titlebar $np_win -minimizebox 1
+        after 100;               # Let change take place
+        set visible [yesno "Is the notepad window minimize box VISIBLE?"]
+        list $invisible $visible
+    } -cleanup {
+        kill $np_pid
+    } -result {1 1}
+
+    test configure_window_titlebar-4.0 {
+        Configure title bar maximize box
+    } -constraints {
+        userInteraction
+    } -setup {
+        set np_pid [notepad_exec]
+        set np_win [notepad_top $np_pid]
+    } -body {
+        twapi::configure_window_titlebar $np_win -maximizebox 0
+        after 100;               # Let change take place
+        set invisible [yesno "Is the notepad window maximize box HIDDEN or DISABLED?"]
+        twapi::configure_window_titlebar $np_win -maximizebox 1
+        after 100;               # Let change take place
+        set visible [yesno "Is the notepad window maximize box VISIBLE?"]
+        list $invisible $visible
+    } -cleanup {
+        kill $np_pid
+    } -result {1 1}
+
+    ################################################################
+
+    test get_color_depth-1.0 {
+        Get color depth of screen
+    } -body {
+        twapi::get_color_depth
+    } -match oneof -result {8 16 24 32}
+
+    test get_color_depth-1.1 {
+        Get color depth of window
+    } -body {
+        twapi::get_color_depth [twapi::get_desktop_window]
+    } -match oneof -result {8 16 24 32}
+
+
+    ################################################################
+
+    ::tcltest::cleanupTests
+}
+
+namespace delete ::twapi::ui::test
+
+
+
+
+
+
+
+
+
+

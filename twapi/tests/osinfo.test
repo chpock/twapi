@@ -1,0 +1,1738 @@
+#
+# Copyright (c) 2003-2012, Ashok P. Nadkarni
+# All rights reserved.
+#
+# See the file LICENSE for license
+
+# This file contains tests for commands from the osinfo.tcl
+
+package require tcltest
+eval tcltest::configure $argv
+
+source [file join [file dirname [info script]] testutil.tcl]
+load_twapi_package twapi_os
+
+#
+# Set up system-specific constants that are used to match test results
+namespace eval twapi::osinfo::test {
+    namespace import ::tcltest::test
+
+    variable get_processor_info_fields {
+        -processormodel -processorname -processorspeed
+        -processorrev -arch -processorlevel
+        -interrupts -usertime -privilegedtime -dpctime -interrupttime
+        -idletime
+    }
+
+    variable test_domain
+    set test_domain(name) [testconfig domain_name]
+    set test_domain(dnsname)  [testconfig domain_dnsname]
+
+
+    proc test_dc {} {
+        return [testconfig domain_controller]
+    }
+
+    # Get the build number
+    proc get_os_build {} {
+        set verstr [exec cmd /c ver]
+        if {![regexp {Version [[:digit:]]+\.[[:digit:]]+\.([[:digit:]]+)} $verstr dontcare build]} {
+            error "Could not get build number"
+        }
+        return $build
+    }
+
+    # Get memory number from wmi
+    proc verify_wmic_memory_value {field value {cmp exact}} {
+        array set mem [lindex [wmic_get CIM_OperatingSystem $field] 0]
+        # Some WMIC values are in KB some in bytes. Accept either
+        set wmic_val [expr {wide(1024)*$mem($field)}]
+        if {$cmp eq "approx"} {
+            return [expr {
+                          [approx $value $wmic_val] ||
+                          [approx $value $mem($field)]
+                      }]
+        } else {
+            return [expr {$value == $wmic_val || $value == $mem($field)}]
+        }
+    }
+
+
+    # Validate primary domain information
+    proc validate_primary_domain {domdata v_msgs} {
+        upvar 1 $v_msgs msgs
+
+        array set dominfo $domdata
+
+        if {[info exists dominfo(-name)]} {
+            if {[indomain]} {
+                if {[string compare -nocase $dominfo(-name) $::env(USERDOMAIN)]} {
+                    lappend msgs "Field -name does not match. Was $dominfo(-name), expected $::env(USERDOMAIN)"
+                }
+            } else {
+                # For workgroup env(USERDOMAIN) contains computer name, not
+                # workgroup so cannot compare with dominfo(-name)
+                # Just do an empirical check
+                if {[lsearch -exact {WORKGROUP HOME TWAPI TEST} [string toupper $dominfo(-name)]] < 0} {
+                    lappend msgs "Field -name does not match. Was $dominfo(-name), expected one of WORKGROUP, TWAPI, TEST or HOME"
+                }
+            }
+        }
+
+        if {[info exists dominfo(-dnsdomainname)]} {
+            if {[indomain]} {
+                if {[string compare -nocase $dominfo(-dnsdomainname) $::env(USERDNSDOMAIN)]} {
+                    lappend msgs "Field -dnsdomainname does not match. Was $dominfo(-dnsdomainname), expected $::env(USERDNSDOMAIN)"
+                }
+            } else {
+                if {$dominfo(-dnsdomainname) ne ""} {
+                    lappend msgs "Field -dnsdomainname does not match. Was $dominfo(-dnsdomainname), expected ''"
+                }
+            }
+        }
+
+        # In our test environ, there is a single domain, so domain == forest
+        if {[info exists dominfo(-dnsforestname)]} {
+            if {[indomain]} {
+                if {[string compare -nocase $dominfo(-dnsforestname) $::env(USERDNSDOMAIN)]} {
+                    lappend msgs "Field -dnsforestname does not match. Was $dominfo(-dnsforestname), expected $::env(USERDNSDOMAIN)"
+                }
+            } else {
+                if {$dominfo(-dnsforestname) ne ""} {
+                    lappend msgs "Field -dnsforestname does not match. Was $dominfo(-dnsforestname), expected ''"
+                }
+            }
+        }
+
+        if {[info exists dominfo(-type)]} {
+            if {($dominfo(-type) eq "domain" && ![indomain]) ||
+                ($dominfo(-type) ne "domain" && [indomain])} {
+                lappend msgs "Field -type does not match. Was $dominfo(-type)."
+            }
+        }
+
+        if {[info exists dominfo(-sid)]} {
+            if {[indomain]} {
+                array set accinfo [twapi::lookup_account_sid $dominfo(-sid) -all]
+                if {$accinfo(-type) ne "domain" ||
+                    [string compare -nocase $accinfo(-domain) $::env(USERDOMAIN)] ||
+                    $accinfo(-name) ne ""} {
+                    lappend msgs "Field -sid value $dominfo(-sid) lookup does not match expected."
+                }
+            } else {
+                if {$dominfo(-sid) ne ""} {
+                    lappend msgs "Field -sid does not match. Was $dominfo(-sid), expected ''"
+                }
+            }
+        }
+
+        if {[info exists dominfo(-guid)]} {
+            if {[indomain]} {
+                if {[catch {twapi::_validate_guid $dominfo(-guid)}]} {
+                    lappend msgs "Field -guid $dominfo(-guid) not a valid GUID"
+                }
+            } else {
+                if {$dominfo(-guid) ne ""} {
+                    lappend msgs "Field -guid does not match. Was $dominfo(-guid), expected ''"
+                }
+            }
+        }
+
+        return
+    }
+
+
+    proc validate_dc_details {details nameformat addrformat v_msgs} {
+        variable test_domain
+
+        upvar 1 $v_msgs msgs
+
+        array set dc $details
+
+        if {$dc(-clientsite) ne "Default-First-Site-Name"} {
+            lappend msgs "Field -clientsite value '$dc(-clientsite)' does not match expected value 'Default-First-Site-Name'"
+        }
+
+        if {$dc(-dcsite) ne "Default-First-Site-Name"} {
+            lappend msgs "Field -dcsite value '$dc(-dcsite)' does not match expected value 'Default-First-Site-Name'"
+        }
+
+        foreach fld {-dcnameformat -domainformat} {
+            if {$nameformat ne "any" && $dc($fld) ne $nameformat} {
+                lappend msgs "Field $fld value is $dc($fld), expected $nameformat"
+            }
+        }
+
+        if {$dc(-dcnameformat) eq "dns"} {
+            if {[string compare -nocase $dc(-dcname) "\\\\[test_dc].$test_domain(dnsname)"]} {
+                lappend msgs "Field -dcname value '$dc(-dcname)' does not match expected value '[test_dc].$test_domain(dnsname)'"
+            }
+        } else {
+            if {[string compare -nocase $dc(-dcname) "\\\\[test_dc]"]} {
+                lappend msgs "Field -dcname value '$dc(-dcname)' does not match expected value '[test_dc]'"
+            }
+        }
+
+        if {![oneof {ip netbios} $dc(-dcaddrformat)]} {
+            lappend msgs "Field -dcaddrformat value '$dc(-dcaddrformat)' is not one ip or netbios"
+        }
+
+        if {$dc(-dcaddrformat) eq "ip"} {
+            if {![valid_ip_address $dc(-dcaddr)]} {
+                lappend msgs "Field -dcaddr value '$dc(-dcaddr)' is not a valid IP address."
+            }
+        } else {
+            if {$dc(-dcaddr) ne [test_dc]} {
+                lappend msgs "Field -dcaddr value '$dc(-dcaddr)' does not match expected value '[test_dc]'"
+            }
+        }
+        
+        if {$dc(-dnsforestformat) eq "dns"} {
+            if {$dc(-dnsforest) ne $test_domain(dnsname)} {
+                lappend msgs "Field -dnsforest value '$dc(-dnsforest)' does not match expected value '$test_domain(dnsname)'"
+            }
+        } else {
+            if {$dc(-dnsforest) ne $test_domain(name)} {
+                lappend msgs "Field -dnsforest value '$dc(-dnsforest)' does not match expected value '$test_domain(name)'"
+            }
+        }
+        
+        if {$dc(-domainformat) eq "dns"} {
+            if {$dc(-domain) ne $test_domain(dnsname)} {
+                lappend msgs "Field -domain value '$dc(-domain)' does not match expected value '$test_domain(dnsname)'"
+            }
+        } else {
+            if {$dc(-domain) ne $test_domain(name)} {
+                lappend msgs "Field -domain value '$dc(-domain)' does not match expected value '$test_domain(name)'"
+            }
+        }
+        
+        if {[catch {twapi::_validate_uuid $dc(-domainguid)}]} {
+            lappend msgs "Field -domainguid $dc(-domainguid) not a valid UUID"
+        }
+
+        set features {
+            closest directoryservice globalcatalog pdc kdc timeserver
+            goodtimeserver writable ldap
+        }
+        if {[llength [setops::diff $dc(-features) $features]]} {
+            lappend msgs "Field -feature '$dc(-features)' contains invalid values [join [setops::diff $dc(-features) $features] ,]"
+        }
+
+        if {[llength [setops::diff $features $dc(-features)]]} {
+            lappend msgs "Field -feature '$dc(-features)' does not contain all expected values."
+        }
+
+        return
+    }
+
+    ################################################################
+
+    test get_processor_count-1.0 {
+        Get processor count
+    } -body {
+        string is integer -strict [twapi::get_processor_count]
+    } -result 1
+
+    ################################################################
+
+    test get_os_version-1.0 {
+        get operating system version
+    } -body {
+        # Do not use tcl_platform(osVersion) as apparently that
+        # has a bug for Win 8.1
+        set ver [exec {*}[auto_execok ver]]
+        regexp {Version (\d+)\.(\d+)} $ver _ maj min
+        lassign [twapi::get_os_version] major minor spmajor spminor
+        list [expr {$major == $maj}] [expr {$minor == $min}] [string is integer -strict $spmajor] [string is integer -strict $spminor]
+    } -result {1 1 1 1}
+
+
+    ################################################################
+
+    test min_os_version-1.0 {
+        meets minimal os version - exact
+    } -constraints {
+        nt
+    } -body {
+        foreach {major minor spmajor spminor} [twapi::get_os_version] break
+        twapi::min_os_version $major $minor $spmajor $spminor
+    } -result 1
+
+    ###
+    test min_os_version-1.1 {
+        meets minimal os version - wanted major < actual
+    } -constraints {
+        nt
+    } -body {
+        foreach {major minor spmajor spminor} [twapi::get_os_version] break
+        twapi::min_os_version [incr major -1] $minor $spmajor $spminor
+    } -result 1
+
+    if {0} {
+        # Cannot run these unless minor/sp are non-0. Need to add a constraing TBD
+        test min_os_version-1.2 {
+            meets minimal os version - wanted minor < actual
+        } {
+            foreach {major minor spmajor spminor} [twapi::get_os_version] break
+            twapi::min_os_version $major [incr minor -1] $spmajor $spminor
+        } 1
+
+        test min_os_version-1.3 {
+            meets minimal os version - wanted SP major < actual
+        } {
+            foreach {major minor spmajor spminor} [twapi::get_os_version] break
+            twapi::min_os_version $major $minor [incr spmajor -1] $spminor
+        } 1
+
+        test min_os_version-1.4 {
+            meets minimal os version - wanted SP minor < actual
+        } {
+            foreach {major minor spmajor spminor} [twapi::get_os_version] break
+            twapi::min_os_version $major $minor $spmajor [incr spminor -1]
+        } 1
+    }
+
+    ###
+    test min_os_version-2.0 {
+        does not meet minimal os version - wanted major > actual
+    } -constraints {
+        nt
+    } -body {
+        foreach {major minor spmajor spminor} [twapi::get_os_version] break
+        twapi::min_os_version [incr major] $minor $spmajor $spminor
+    } -result 0
+
+    ###
+    test min_os_version-2.1 {
+        does not meet minimal os version - wanted minor > actual
+    } -constraints {
+        nt
+    } -body {
+        foreach {major minor spmajor spminor} [twapi::get_os_version] break
+        twapi::min_os_version $major [incr minor] $spmajor $spminor
+    } -result 0
+
+    ###
+    test min_os_version-2.2 {
+        Does not meet minimal os version - wanted SP major > actual
+    } -constraints {
+        nt
+    } -body {
+        foreach {major minor spmajor spminor} [twapi::get_os_version] break
+        twapi::min_os_version $major $minor [incr spmajor] $spminor
+    } -result 0
+
+    ###
+    test min_os_version-2.3 {
+        Does not meet minimal os version - wanted SP minor > actual
+    } -constraints {
+        nt
+    } -body {
+        foreach {major minor spmajor spminor} [twapi::get_os_version] break
+        twapi::min_os_version $major $minor $spmajor [incr spminor]
+    } -result 0
+
+    ################################################################
+
+    test get_os_info-1.0 {
+        Get operating system information 
+    } -constraints {
+        nt
+    } -body {
+        verify_kl_fields [twapi::get_os_info] {
+            platform
+            os_major_version
+            os_minor_version
+            os_build_number
+            sp_major_version
+            sp_minor_version
+            system_type
+            suites
+        }
+    } -result ""
+
+    ###
+    test get_os_info-2.0 {
+        Get operating system version
+    } -constraints {
+        nt
+    } -body {
+        catch {unset osinfo}
+        array set osinfo [twapi::get_os_info]
+        list $osinfo(os_major_version) $osinfo(os_minor_version) $osinfo(sp_major_version) $osinfo(sp_minor_version)
+    } -result [twapi::get_os_version]
+
+    ###
+    test get_os_info-3.0 {
+        Get operating system platform
+    } -constraints {
+        nt
+    } -body {
+        catch {unset osinfo}
+        array set osinfo [twapi::get_os_info]
+        set osinfo(platform)
+    } -result "NT"
+
+    ###
+    test get_os_info-4.0 {
+        Get operating system build number
+    } -constraints {
+        nt
+    } -setup {
+        set verstr [exec cmd /c ver]
+        if {![regexp {Version [[:digit:]]+\.[[:digit:]]+\.([[:digit:]]+)} $verstr dontcare build]} {
+            error "Could not set up test"
+        }
+    } -body {
+        array set osinfo [twapi::get_os_info]
+        set osinfo(os_build_number)
+    } -result [get_os_build]
+
+
+    ###
+    test get_os_description-1.0 {
+        Get operating system description
+    } -constraints {
+        nt
+    } -body {
+        twapi::get_os_description
+    } -match glob -result "Windows*"
+
+    ###
+    test get_computer_netbios_name-1.0 {
+        Get computer netbios name
+    } -constraints {
+        nt
+    } -body {
+        twapi::get_computer_netbios_name
+    } -result $::env(COMPUTERNAME)
+
+    ###
+    test get_processor_info-1.0 {
+        Get processor performance information without options
+    } -constraints {
+        nt
+    } -body {
+        twapi::get_processor_info 0
+    } -result ""
+
+    ###
+    test get_processor_info-1.1 {
+        Get all performance information for all processors
+    } -constraints {
+        nt
+    } -body {
+        verify_kl_fields [twapi::get_processor_info "" -all] $get_processor_info_fields
+    } -result ""
+
+
+    ###
+    test get_processor_info-1.2 {
+        Get all performance information for a processor
+    } -constraints {
+        nt
+    } -body {
+        verify_kl_fields [twapi::get_processor_info 0 -all] $get_processor_info_fields
+    } -result ""
+
+
+    ###
+    test get_processor_info-2.0 {
+        Get processor model
+    } -constraints {
+        nt
+    } -body {
+        set model [twapi::get_processor_info 0 -processormodel]
+        verify_kl_fields $model -processormodel
+    } -result ""
+
+    ###
+    test get_processor_info-3.0 {
+        Get processor name
+    } -constraints {
+        nt
+    } -body {
+        set name [twapi::get_processor_info 0 -processorname]
+        verify_kl_fields $name -processorname
+    } -result ""
+
+    ###
+    test get_processor_info-4.0 {
+        Get processor speed
+    } -constraints {
+        nt
+    } -body {
+        set speed [twapi::get_processor_info 0 -processorspeed]
+        expr {[verify_kl_fields $speed -processorspeed] == "" &&
+             [string is integer [lindex $speed 1]]}
+    } -result 1
+
+
+    ###
+    test get_processor_info-5.0 {
+        Get processor information -interrupts
+    } -constraints {
+        nt
+    } -body {
+        set data [twapi::get_processor_info 0 -interrupts]
+        expr {[verify_kl_fields $data -interrupts] == "" &&
+             [string is digit [lindex $data 1]]}
+    } -result 1
+
+
+    ###
+    test get_processor_info-6.0 {
+        Get processor information -idletime
+    } -constraints {
+        nt
+    } -body {
+        set data [twapi::get_processor_info 0 -idletime]
+        expr {[verify_kl_fields $data -idletime] == "" &&
+             [string is digit [lindex $data 1]]}
+    } -result 1
+
+
+    ###
+    test get_processor_info-7.0 {
+        Get processor information -privilegedtime
+    } -constraints {
+        nt
+    } -body {
+        set data [twapi::get_processor_info 0 -privilegedtime]
+        expr {[verify_kl_fields $data -privilegedtime] == "" &&
+             [string is digit [lindex $data 1]]}
+    } -result 1
+
+
+    ###
+    test get_processor_info-8.0 {
+        Get processor information -dpctime
+    } -constraints {
+        nt
+    } -body {
+        set data [twapi::get_processor_info 0 -dpctime]
+        expr {[verify_kl_fields $data -dpctime] == "" &&
+             [string is digit [lindex $data 1]]}
+    } -result 1
+
+    ###
+    test get_processor_info-9.0 {
+        Get processor information -usertime
+    } -constraints {
+        nt
+    } -body {
+        set data [twapi::get_processor_info 0 -usertime]
+        expr {[verify_kl_fields $data -usertime] == "" &&
+             [string is digit [lindex $data 1]]}
+    } -result 1
+
+
+    ###
+    test get_processor_info-10.0 {
+        Get processor information -interrupttime
+    } -constraints {
+        nt
+    } -body {
+        # For a change, instead of getting processor 0, we get
+        # all processors ""
+        set data [twapi::get_processor_info "" -interrupttime]
+        expr {[verify_kl_fields $data -interrupttime] == "" &&
+             [string is digit [lindex $data 1]]}
+    } -result 1
+
+    ################################################################
+
+    test get_memory_info-1.0 {
+        Get memory information without options
+    } -constraints {
+        nt
+    } -body {
+        twapi::get_memory_info
+    } -result ""
+
+    ###
+    test get_memory_info-1.1 {
+        Get all memory information
+    } -constraints {
+        nt
+    } -body {
+        set mem [twapi::get_memory_info -all]
+        verify_kl_fields $mem {
+            -allocationgranularity   -availcommit   -availphysical
+            -kernelpaged     -kernelnonpaged    
+            -maxappaddr   -minappaddr    -pagesize
+            -peakcommit   -physicalmemoryload   
+            -processavailcommit   -processcommitlimit
+            -processtotalvirtual   -processavailvirtual
+            -systemcache   -swapfiles   -swapfiledetail
+            -totalcommit    -totalphysical  -usedcommit
+        }
+        set result {}
+        foreach field {
+            -allocationgranularity   -availcommit   -availphysical
+            -kernelpaged     -kernelnonpaged    
+            -maxappaddr   -minappaddr    -pagesize
+            -peakcommit   -physicalmemoryload   
+            -processavailcommit   -processcommitlimit
+            -processtotalvirtual   -processavailvirtual
+            -systemcache
+            -totalcommit    -totalphysical  -usedcommit
+        } {
+            if {! [string is wide -strict [twapi::kl_get $mem $field]]} {
+                lappend result $field:[twapi::kl_get $mem $field]
+            }
+        }
+        set result
+    } -result {}
+
+    ###
+    test get_memory_info-2.0 {
+        Get memory information option -swapfiles
+    } -constraints {
+        nt
+    } -body {
+        set optval [twapi::get_memory_info -swapfiles]
+        verify_kl_fields $optval [list -swapfiles]
+    } -result ""
+
+    ###
+    test get_memory_info-3.0 {
+        Get memory information option -swapfiledetail
+    } -constraints {
+        nt
+    } -body {
+        set optval [twapi::get_memory_info -swapfiledetail]
+        verify_kl_fields $optval [list -swapfiledetail]
+        set errors [list ]
+        foreach {filename data} [lindex $optval 1] {
+            if {[llength $data] != 3} {
+                lappend errors "Data for $filename has [llength $data] elements"
+                continue
+            }
+            foreach {size used peak} $data break
+            if {$size < $used || $peak < $used} {
+                lappend errors "Inconsistent usage values <$data> for swap file $filename"
+            }
+        }
+        set errors
+    } -result ""
+
+    ###
+    test get_memory_info-4.0 {
+        Get memory information option -pagesize
+    } -constraints {
+        nt
+    } -body {
+        set optval [twapi::get_memory_info -pagesize]
+        verify_kl_fields $optval [list -pagesize]
+        lindex $optval 1
+    } -result 4096
+
+    ###
+    test get_memory_info-5.0 {
+        Get memory information option -minappaddr
+    } -constraints {
+        nt
+    } -body {
+        set optval [twapi::get_memory_info -minappaddr]
+        verify_kl_fields $optval [list -minappaddr]
+        lindex $optval 1
+    } -result 0x10000
+
+    ###
+    test get_memory_info-6.0 {
+        Get memory information option -maxappaddr
+    } -constraints {
+        nt
+    } -body {
+        set optval [twapi::get_memory_info -maxappaddr]
+        verify_kl_fields $optval [list -maxappaddr]
+        lindex $optval 1
+    } -result 0x[format %lx [expr {$::tcl_platform(machine) eq "amd64" ? 0x7fffffeffff : 0x7ffeffff}]]
+
+    ###
+    test get_memory_info-7.0 {
+        Get memory information option -allocationgranularity
+    } -constraints {
+        nt
+    } -body {
+        set optval [twapi::get_memory_info -allocationgranularity]
+        verify_kl_fields $optval [list -allocationgranularity]
+        lindex $optval 1
+    } -result 65536
+
+    ###
+    test get_memory_info-8.0 {
+        Get memory information option -totalphysical
+    } -constraints {
+        nt
+    } -setup {
+    } -body {
+        set optval [twapi::get_memory_info -totalphysical]
+        verify_kl_fields $optval [list -totalphysical]
+        verify_wmic_memory_value totalvisiblememorysize [lindex $optval 1]
+    } -result 1
+
+    ###
+    test get_memory_info-9.0 {
+        Get memory information option -availphysical
+    } -constraints {
+        nt
+    } -setup {
+    } -body {
+        set optval [twapi::get_memory_info -availphysical]
+        verify_kl_fields $optval [list -availphysical]
+        verify_wmic_memory_value freephysicalmemory [lindex $optval 1] approx
+    } -result 1
+
+    test get_memory_info-10.0 {
+        Get memory information option -availcommit
+    } -body {
+        set optval [twapi::get_memory_info -availcommit]
+        verify_kl_fields $optval [list -availcommit]
+        # Note MS has a documented bug because of which either of
+        # two values may match depending on the system patches
+        expr {[verify_wmic_memory_value freevirtualmemory [lindex $optval 1] approx] ||
+              [verify_wmic_memory_value freespaceinpagingfiles [lindex $optval 1] approx]}
+    } -result 1
+
+    ###
+    test get_memory_info-11.0 {
+        Get memory information option -totalcommit
+    } -body {
+        set optval [twapi::get_memory_info -totalcommit]
+        verify_kl_fields $optval [list -totalcommit]
+        # Note MS has a documented bug because of which either of
+        # two values may match depending on the system patches
+        expr {[verify_wmic_memory_value sizestoredinpagingfiles [lindex $optval 1] approx] ||
+              [verify_wmic_memory_value totalvirtualmemorysize [lindex $optval 1] approx]}
+    } -result 1
+
+    ###
+    test get_memory_info-12.0 {
+        Get memory information option -kernelpaged, -kernelnonpaged
+    } -body {
+        set optval [twapi::get_memory_info -kernelpaged -kernelnonpaged]
+        verify_kl_fields $optval [list -kernelpaged -kernelnonpaged]
+        set kernmem [twapi::kl_get [twapi::GetPerformanceInformation] KernelTotal]
+        expr {([twapi::kl_get $optval -kernelpaged] +
+               [twapi::kl_get $optval -kernelnonpaged]) == (4096*$kernmem) &&
+              $kernmem != 0
+          }
+    } -result 1
+
+    test get_memory_info-13.0 {
+        Get memory information option -peakcommit
+    } -body {
+        unset -nocomplain vals
+        array set vals [twapi::get_memory_info -peakcommit -totalcommit]
+        inrange [list 100000000 $vals(-totalcommit)] $vals(-peakcommit)
+    } -result 1
+
+
+    test get_memory_info-14.0 {
+        Get memory information option -usedcommit
+    } -body {
+        unset -nocomplain vals
+        array set vals [twapi::get_memory_info -usedcommit -peakcommit]
+        inrange [list 100000000 $vals(-peakcommit)] $vals(-usedcommit)
+    } -result 1
+
+
+    test get_memory_info-15.0 {
+        Get memory information option -processavailcommit
+    } -body {
+        set optval [twapi::get_memory_info -processavailcommit]
+        verify_kl_fields $optval [list -processavailcommit]
+        # Expect available commit to be same as systemwide avail commit
+        # Note MS has a documented bug because of which either of
+        # two values may match depending on the system patches
+        expr {[verify_wmic_memory_value freevirtualmemory [lindex $optval 1] approx] ||
+              [verify_wmic_memory_value freespaceinpagingfiles [lindex $optval 1] approx]}
+    } -result 1
+
+    test get_memory_info-16.0 {
+        Get memory information option -processcommitlimit
+    } -body {
+        set optval [twapi::get_memory_info -processcommitlimit]
+        verify_kl_fields $optval [list -processcommitlimit]
+        # Expect available commit to be same as systemwide avail commit
+        # Note MS has a documented bug because of which either of
+        # two values may match depending on the system patches
+        expr {[verify_wmic_memory_value sizestoredinpagingfiles [lindex $optval 1] approx] ||
+              [verify_wmic_memory_value totalvirtualmemorysize [lindex $optval 1] approx]}
+    } -result 1
+
+    test get_memory_info-17.0 {
+        Get memory information option -processtotalvirtual
+    } -body {
+        set optval [twapi::get_memory_info -processtotalvirtual]
+        verify_kl_fields $optval [list -processtotalvirtual]
+        lindex $optval 1
+    } -result [format %lld [expr {$::tcl_platform(machine) eq "amd64" ? 0x7fffffe0000 : 0x7ffe0000}]]
+
+    test get_memory_info-18.0 {
+        Get memory information option -processavailvirtual
+    } -body {
+        set optval [twapi::get_memory_info -processavailvirtual]
+        verify_kl_fields $optval [list -processavailvirtual]
+        expr {[lindex $optval 1] > 1000000000}
+    } -result 1
+
+
+    ################################################################
+
+    set testnum -1
+    foreach {spi type} {
+        SPI_GETDESKWALLPAPER   {^.*$}
+        SPI_GETBEEP   {^\d+$}
+        SPI_GETMOUSE   {^\d+(\s+\d+){2}$}
+        SPI_GETBORDER   {^\d+$}
+        SPI_GETKEYBOARDSPEED   {^\d+$}
+        SPI_ICONHORIZONTALSPACING   {^\d+$}
+        SPI_GETSCREENSAVETIMEOUT   {^\d+$}
+        SPI_GETSCREENSAVEACTIVE   {^\d+$}
+        SPI_GETKEYBOARDDELAY   {^\d+$}
+        SPI_ICONVERTICALSPACING   {^\d+$}
+        SPI_GETICONTITLEWRAP   {^\d+$}
+        SPI_GETMENUDROPALIGNMENT   {^\d+$}
+        SPI_GETDRAGFULLWINDOWS   {^\d+$}
+        SPI_GETMINIMIZEDMETRICS   {^\d+(\s+\d+){4}$}
+        SPI_GETWORKAREA   {^\d+(\s+\d+){3}$}
+        SPI_GETKEYBOARDPREF   {^\d+$}
+        SPI_GETSCREENREADER   {^\d+$}
+        SPI_GETANIMATION   {^\d+\s+\d+$}
+        SPI_GETFONTSMOOTHING   {^\d+$}
+        SPI_GETLOWPOWERTIMEOUT   {^\d+$}
+        SPI_GETPOWEROFFTIMEOUT   {^\d+$}
+        SPI_GETLOWPOWERACTIVE   {^\d+$}
+        SPI_GETPOWEROFFACTIVE   {^\d+$}
+        SPI_GETSCREENSAVERRUNNING   {^\d+$}
+        SPI_GETFILTERKEYS   {^\d+(\s+\d+){5}$}
+        SPI_GETTOGGLEKEYS   {^\d+\s+\d+$}
+        SPI_GETMOUSEKEYS   {^\d+(\s+-?\d+){6}$}
+        SPI_GETSHOWSOUNDS   {^\d+$}
+        SPI_GETSTICKYKEYS   {^\d+\s+\d+$}
+        SPI_GETACCESSTIMEOUT   {^\d+(\s+\d+){2}$}
+        SPI_GETSNAPTODEFBUTTON   {^\d+$}
+        SPI_GETMOUSEHOVERWIDTH   {^\d+$}
+        SPI_GETMOUSEHOVERHEIGHT   {^\d+$}
+        SPI_GETMOUSEHOVERTIME   {^\d+$}
+        SPI_GETWHEELSCROLLLINES   {^\d+$}
+        SPI_GETMENUSHOWDELAY   {^\d+$}
+        SPI_GETSHOWIMEUI   {^\d+$}
+        SPI_GETMOUSESPEED   {^\d+$}
+        SPI_GETACTIVEWINDOWTRACKING   {^\d+$}
+        SPI_GETMENUANIMATION   {^\d+$}
+        SPI_GETCOMBOBOXANIMATION   {^\d+$}
+        SPI_GETLISTBOXSMOOTHSCROLLING   {^\d+$}
+        SPI_GETGRADIENTCAPTIONS   {^\d+$}
+        SPI_GETKEYBOARDCUES   {^\d+$}
+        SPI_GETMENUUNDERLINES   {^\d+$}
+        SPI_GETACTIVEWNDTRKZORDER   {^\d+$}
+        SPI_GETHOTTRACKING   {^\d+$}
+        SPI_GETMENUFADE   {^\d+$}
+        SPI_GETSELECTIONFADE   {^\d+$}
+        SPI_GETTOOLTIPANIMATION   {^\d+$}
+        SPI_GETTOOLTIPFADE   {^\d+$}
+        SPI_GETCURSORSHADOW   {^\d+$}
+        SPI_GETMOUSESONAR   {^\d+$}
+        SPI_GETMOUSECLICKLOCK   {^\d+$}
+        SPI_GETMOUSEVANISH   {^\d+$}
+        SPI_GETFLATMENU   {^\d+$}
+        SPI_GETDROPSHADOW   {^\d+$}
+        SPI_GETBLOCKSENDINPUTRESETS   {^\d+$}
+        SPI_GETUIEFFECTS   {^\d+$}
+        SPI_GETFOREGROUNDLOCKTIMEOUT   {^\d+$}
+        SPI_GETACTIVEWNDTRKTIMEOUT   {^\d+$}
+        SPI_GETFOREGROUNDFLASHCOUNT   {^\d+$}
+        SPI_GETCARETWIDTH   {^\d+$}
+        SPI_GETMOUSETRAILS   {^\d+$}
+        SPI_GETMOUSECLICKLOCKTIME   {^\d+$}
+        SPI_GETFONTSMOOTHINGTYPE   {^\d+$}
+        SPI_GETFONTSMOOTHINGCONTRAST   {^\d+$}
+        SPI_GETFOCUSBORDERWIDTH   {^\d+$}
+        SPI_GETFOCUSBORDERHEIGHT   {^\d+$}
+    } {
+        test get_system_parameters_info-1.[incr testnum] \
+            "get_system_parameters_info -$spi" \
+            -constraints {
+                nt
+            } -body "twapi::get_system_parameters_info $spi" \
+            -result $type -match regexp
+    }
+
+    ################################################################
+
+    test set_system_parameters_info-1.0 {
+        set_system_parameters_info tests 
+    } -constraints {
+        nt TBD
+    } -body {
+    } -result ""
+
+
+    ################################################################
+
+    test get_computer_name-1.0 {
+        Get computer name (default)
+    } -constraints {
+        nt
+    } -body {
+        twapi::get_computer_name
+    } -result $::env(computername)
+
+    ###
+
+    test get_computer_name-1.1 {
+        Get computer Netbios name
+    } -constraints {
+        nt
+    } -body {
+        twapi::get_computer_name netbios
+    } -result $::env(computername)
+
+    ###
+
+    test get_computer_name-1.2 {
+        Get computer DNS hostname
+    } -constraints {
+        nt
+    } -body {
+        string tolower [twapi::get_computer_name dnshostname]
+    } -result [string tolower $::env(computername)]
+
+    ###
+
+    test get_computer_name-1.3 {
+        Get computer DNS domain
+    } -constraints {
+        nt
+    } -body {
+        twapi::get_computer_name dnsdomain
+    } -result {^[-.\w]*$} -match regexp
+
+    ###
+
+    test get_computer_name-1.4 {
+        Get computer fully qualified DNS hostname
+    } -constraints {
+        nt
+    } -body {
+        twapi::get_computer_name dnsfullyqualified
+    } -result "(?i)^$::env(computername)\[-.\\w\]*\$" -match regexp
+
+
+    ###
+
+    test get_computer_name-1.5 {
+        Get physical computer Netbios name
+    } -constraints {
+        nt
+    } -body {
+        twapi::get_computer_name physicalnetbios
+    } -result $::env(computername)
+
+    ###
+
+    test get_computer_name-1.6 {
+        Get physical computer DNS hostname
+    } -constraints {
+        nt
+    } -body {
+        string tolower [twapi::get_computer_name physicaldnshostname]
+    } -result [string tolower $::env(computername)]
+
+    ###
+
+    test get_computer_name-1.7 {
+        Get physical computer DNS domain
+    } -constraints {
+        nt
+    } -body {
+        twapi::get_computer_name physicaldnsdomain
+    } -result {^[-.\w]*$} -match regexp
+
+    ###
+
+    test get_computer_name-1.8 {
+        Get physical computer fully qualified DNS hostname
+    } -constraints {
+        nt
+    } -body {
+        twapi::get_computer_name physicaldnsfullyqualified
+    } -result "(?i)^$::env(computername)\[-.\\w\]*\$" -match regexp
+
+    ################################################################
+
+    test get_system_sid-1.0 {
+        Get system SID
+    } -body {
+        twapi::get_system_sid
+    } -result S-1-* -match glob
+
+    ################################################################
+
+    test get_system_time-1.0 {
+        Get system time in 100ns
+    } -body {
+        approx [twapi::large_system_time_to_secs_since_1970 [twapi::get_system_time]] [clock seconds]
+    } -result 1
+
+    ################################################################
+
+    test get_system_uptime-1.0 {
+        Get number of seconds since system booted
+    } -body {
+        string is integer -strict [twapi::get_system_uptime]
+    } -result 1
+
+    ################################################################
+
+    test get_active_processor_mask-1.0 {
+        Get mask of active processors
+    } -body {
+        set mask [twapi::get_active_processor_mask]
+        switch -glob -- [string tolower $::env(COMPUTERNAME)] {
+            luna { expr {$mask == 1 } }
+            sol* { expr {$mask == 3 } }
+            default { string is integer -strict $mask }
+        }
+    } -result 1
+            
+    ################################################################
+
+    test get_primary_domain_info-1.0 {
+        Get primary domain info with no options
+    } -body {
+        twapi::get_primary_domain_info
+    } -result {}
+
+    test get_primary_domain_info-2.0 {
+        Get primary domain info -all
+    } -body {
+        set domdata [twapi::get_primary_domain_info -all]
+        verify_kl_fields $domdata {
+            -name -dnsdomainname -dnsforestname -domainguid -sid -type
+        }
+        set msgs {}
+        validate_primary_domain $domdata msgs
+        join $msgs \n
+    } -result ""
+
+    test get_primary_domain_info-2.1 {
+        Get primary domain info -name
+    } -body {
+        set domdata [twapi::get_primary_domain_info -name]
+        verify_kl_fields $domdata [list -name]
+        set msgs {}
+        validate_primary_domain $domdata msgs
+        join $msgs \n
+    } -result ""
+
+    test get_primary_domain_info-2.2 {
+        Get primary domain info -type
+    } -body {
+        set domdata [twapi::get_primary_domain_info -type]
+        verify_kl_fields $domdata [list -type]
+        set msgs {}
+        validate_primary_domain $domdata msgs
+        join $msgs \n
+    } -result ""
+
+    test get_primary_domain_info-2.3 {
+        Get primary domain info -dnsdomainname
+    } -body {
+        set domdata [twapi::get_primary_domain_info -dnsdomainname]
+        verify_kl_fields $domdata [list -dnsdomainname]
+        set msgs {}
+        validate_primary_domain $domdata msgs
+        join $msgs \n
+    } -result ""
+
+    test get_primary_domain_info-2.4 {
+        Get primary domain info -dnsforestname
+    } -body {
+        set domdata [twapi::get_primary_domain_info -dnsforestname]
+        verify_kl_fields $domdata [list -dnsforestname]
+        set msgs {}
+        validate_primary_domain $domdata msgs
+        join $msgs \n
+    } -result ""
+
+    test get_primary_domain_info-2.5 {
+        Get primary domain info -domainguid
+    } -body {
+        set domdata [twapi::get_primary_domain_info -domainguid]
+        verify_kl_fields $domdata [list -domainguid]
+        set msgs {}
+        validate_primary_domain $domdata msgs
+        join $msgs \n
+    } -result ""
+
+    test get_primary_domain_info-2.6 {
+        Get primary domain info -sid
+    } -body {
+        set domdata [twapi::get_primary_domain_info -sid]
+        verify_kl_fields $domdata [list -sid]
+        set msgs {}
+        validate_primary_domain $domdata msgs
+        join $msgs \n
+    } -result ""
+
+    ################################################################
+
+    test get_primary_domain_controller-1.0 {
+        Get the primary domain controller
+    } -body {
+        if {[indomain]} {
+            string equal [twapi::get_primary_domain_controller] $::env(LOGONSERVER)
+        } else {
+            catch {twapi::get_primary_domain_controller}
+        }
+    } -result 1
+
+    test get_primary_domain_controller-2.0 {
+        Get the primary domain controller -domain
+    } -constraints {
+        domain
+    } -body {
+        twapi::get_primary_domain_controller -domain $::env(USERDOMAIN)
+    } -result $::env(LOGONSERVER)
+
+    test get_primary_domain_controller-3.0 {
+        Get the primary domain controller -system (without leading \\)
+    } -constraints {
+        domain
+    } -body {
+        twapi::get_primary_domain_controller -system [string trimleft $::env(COMPUTERNAME) \\]
+    } -result $::env(LOGONSERVER)
+
+    test get_primary_domain_controller-3.1 {
+        Get the primary domain controller -system (with leading \\)
+    } -constraints {
+        domain
+    } -body {
+        twapi::get_primary_domain_controller -system \\\\[string trimleft $::env(COMPUTERNAME) \\]
+    } -result $::env(LOGONSERVER)
+
+    ################################################################
+
+    test find_domain_controller-1.0 {
+        Find domain controller (defaults)
+    } -body {
+        if {[indomain]} {
+            string equal -nocase [twapi::find_domain_controller] "$::env(LOGONSERVER).$::env(USERDNSDOMAIN)"
+        } else {
+            expr {
+                  [catch {twapi::find_domain_controller}] &&
+                  [lindex $::errorCode 0] eq "TWAPI_WIN32" &&
+                  [lindex $::errorCode 1] == 1355
+              }
+        }
+    } -result 1
+
+    test find_domain_controller-2.0 {
+        Find domain controller -allowstale false
+    } -body {
+        if {[indomain]} {
+            string equal -nocase [twapi::find_domain_controller -allowstale false] "$::env(LOGONSERVER).$::env(USERDNSDOMAIN)"
+        } else {
+            expr {
+                  [catch {twapi::find_domain_controller}] &&
+                  [lindex $::errorCode 0] eq "TWAPI_WIN32" &&
+                  [lindex $::errorCode 1] == 1355
+              }
+        }
+    } -result 1
+
+    test find_domain_controller-2.1 {
+        Find domain controller -allowstale true
+    } -body {
+        if {[indomain]} {
+            string equal -nocase [twapi::find_domain_controller -allowstale true] "$::env(LOGONSERVER).$::env(USERDNSDOMAIN)"
+        } else {
+            expr {
+                  [catch {twapi::find_domain_controller}] &&
+                  [lindex $::errorCode 0] eq "TWAPI_WIN32" &&
+                  [lindex $::errorCode 1] == 1355
+              }
+        }
+    } -result 1
+
+    test find_domain_controller-3.0 {
+        Find domain controller -avoidself false
+    } -body {
+        if {[indomain]} {
+            string equal -nocase [twapi::find_domain_controller -avoidself false] "$::env(LOGONSERVER).$::env(USERDNSDOMAIN)"
+        } else {
+            expr {
+                  [catch {twapi::find_domain_controller}] &&
+                  [lindex $::errorCode 0] eq "TWAPI_WIN32" &&
+                  [lindex $::errorCode 1] == 1355
+              }
+        }
+    } -result 1
+
+    test find_domain_controller-3.1 {
+        Find domain controller -avoidself true
+    } -body {
+        if {[indomain]} {
+            string equal -nocase [twapi::find_domain_controller -avoidself true] "$::env(LOGONSERVER).$::env(USERDNSDOMAIN)"
+        } else {
+            expr {
+                  [catch {twapi::find_domain_controller}] &&
+                  [lindex $::errorCode 0] eq "TWAPI_WIN32" &&
+                  [lindex $::errorCode 1] == 1355
+              }
+        }
+    } -result 1
+
+    test find_domain_controller-4.0 {
+        Find domain controller -domain (LANMAN format)
+    } -constraints {
+        dcexists
+    } -body {
+        string equal -nocase [twapi::find_domain_controller -domain $test_domain(name)] \\\\[test_dc]
+    } -result 1
+
+    test find_domain_controller-4.1 {
+        Find domain controller -domain (DNS format)
+    } -constraints {
+        dcexists
+    } -body {
+        string equal -nocase [twapi::find_domain_controller -domain $test_domain(dnsname)] \\\\[test_dc].$test_domain(dnsname)
+    } -result 1
+
+    test find_domain_controller-5.0 {
+        Find domain controller -inputnameformat flat
+    } -constraints {
+        dcexists
+    } -body {
+        string equal -nocase [twapi::find_domain_controller -domain $test_domain(name) -inputnameformat flat] \\\\[test_dc]
+    } -result 1
+
+    test find_domain_controller-5.1 {
+        Find domain controller -inputnameformat flat with DNS name
+    } -constraints {
+        dcexists
+    } -body {
+        twapi::find_domain_controller -domain $test_domain(dnsname) -inputnameformat flat
+    } -result [twapi::map_windows_error 1355] -returnCodes error
+
+    test find_domain_controller-5.2 {
+        Find domain controller -inputnameformat dns
+    } -constraints {
+        dcexists
+    } -body {
+        string equal -nocase [twapi::find_domain_controller -domain $test_domain(dnsname) -inputnameformat dns] \\\\[test_dc].$test_domain(dnsname)
+    } -result 1
+
+    test find_domain_controller-5.3 {
+        Find domain controller -inputnameformat dns with flat name
+    } -constraints {
+        dcexists
+    } -body {
+        twapi::find_domain_controller -domain $test_domain(name) -inputnameformat dns
+    } -result [twapi::map_windows_error 1212] -returnCodes error
+
+    test find_domain_controller-6.0 {
+        Find domain controller using GUID
+    } -constraints {
+        domain
+    } -setup {
+        set dc_guid [twapi::kl_get [twapi::get_primary_domain_info -all] -domainguid]
+    } -body {
+        string equal -nocase [twapi::find_domain_controller -domain nosuchdomain -domainguid $dc_guid -system [test_dc]] \\\\[test_dc].$test_domain(dnsname)
+    } -result 1
+
+    test find_domain_controller-6.1 {
+        Find domain controller using bogus GUID
+    } -constraints {
+        domain
+    } -setup {
+        set dc_guid [twapi::kl_get [twapi::get_primary_domain_info -all] -domainguid]
+    } -body {
+        string equal -nocase [twapi::find_domain_controller -domain nosuchdomain -domainguid 00[string range $dc_guid 2 end] -system [test_dc]] \\\\[test_dc].$test_domain(dnsname)
+    } -returnCodes error -result [twapi::map_windows_error 1355]
+
+    test find_domain_controller-7.0 {
+        Find domain controller with details
+    } -constraints {
+        domain
+    } -body {
+        set msgs {}
+        validate_dc_details [twapi::find_domain_controller -getdetails] any any msgs
+        join $msgs \n
+    } -result ""
+
+    test find_domain_controller-7.1 {
+        Find domain controller details with -outputnameformat dns
+    } -constraints {
+        domain
+    } -body {
+        set msgs {}
+        validate_dc_details [twapi::find_domain_controller -getdetails -outputnameformat dns] dns any msgs
+        join $msgs \n
+    } -result ""
+
+    test find_domain_controller-7.2 {
+        Find domain controller details with -outputnameformat netbios
+    } -constraints {
+        domain
+    } -body {
+        set msgs {}
+        validate_dc_details [twapi::find_domain_controller -getdetails -outputnameformat netbios] netbios any msgs
+        join $msgs \n
+    } -result ""
+
+    test find_domain_controller-7.3 {
+        Find domain controller details with -outputnameformat flat
+    } -constraints {
+        domain
+    } -body {
+        set msgs {}
+        validate_dc_details [twapi::find_domain_controller -getdetails -outputnameformat flat] netbios any msgs
+        join $msgs \n
+    } -result ""
+
+    test find_domain_controller-7.4 {
+        Find domain controller details with -outputnameformat any
+    } -constraints {
+        domain
+    } -body {
+        set msgs {}
+        validate_dc_details [twapi::find_domain_controller -getdetails -outputnameformat any] any any msgs
+        join $msgs \n
+    } -result ""
+
+    test find_domain_controller-7.5 {
+        Find domain controller details with -outputaddrformat ip
+    } -constraints {
+        domain
+    } -body {
+        set msgs {}
+        validate_dc_details [twapi::find_domain_controller -getdetails -outputaddrformat ip] any ip msgs
+        join $msgs \n
+    } -result ""
+
+
+    test find_domain_controller-8.0 {
+        Find domain controller -justldap false
+    } -body {
+        if {[indomain]} {
+            string equal -nocase [twapi::find_domain_controller -justldap false] "$::env(LOGONSERVER).$::env(USERDNSDOMAIN)"
+        } else {
+            expr {
+                  [catch {twapi::find_domain_controller}] &&
+                  [lindex $::errorCode 0] eq "TWAPI_WIN32" &&
+                  [lindex $::errorCode 1] == 1355
+              }
+        }
+    } -result 1
+
+    test find_domain_controller-8.1 {
+        Find domain controller -justldap true
+    } -body {
+        if {[indomain]} {
+            string equal -nocase [twapi::find_domain_controller -justldap true] "$::env(LOGONSERVER).$::env(USERDNSDOMAIN)"
+        } else {
+            expr {
+                  [catch {twapi::find_domain_controller}] &&
+                  [lindex $::errorCode 0] eq "TWAPI_WIN32" &&
+                  [lindex $::errorCode 1] == 1355
+              }
+        }
+    } -result 1
+
+    test find_domain_controller-9.0 {
+        Find domain controller -rediscover false
+    } -body {
+        if {[indomain]} {
+            string equal -nocase [twapi::find_domain_controller -rediscover false] "$::env(LOGONSERVER).$::env(USERDNSDOMAIN)"
+        } else {
+            expr {
+                  [catch {twapi::find_domain_controller}] &&
+                  [lindex $::errorCode 0] eq "TWAPI_WIN32" &&
+                  [lindex $::errorCode 1] == 1355
+              }
+        }
+    } -result 1
+
+    test find_domain_controller-9.1 {
+        Find domain controller -rediscover true
+    } -body {
+        if {[indomain]} {
+            string equal -nocase [twapi::find_domain_controller -rediscover true] "$::env(LOGONSERVER).$::env(USERDNSDOMAIN)"
+        } else {
+            expr {
+                  [catch {twapi::find_domain_controller}] &&
+                  [lindex $::errorCode 0] eq "TWAPI_WIN32" &&
+                  [lindex $::errorCode 1] == 1355
+              }
+        }
+    } -result 1
+
+    test find_domain_controller-10.0 {
+        Find domain controller -prefer
+    } -body {
+        if {[indomain]} {
+            string equal -nocase [twapi::find_domain_controller -prefer {timeserver}] "$::env(LOGONSERVER).$::env(USERDNSDOMAIN)"
+        } else {
+            expr {
+                  [catch {twapi::find_domain_controller}] &&
+                  [lindex $::errorCode 0] eq "TWAPI_WIN32" &&
+                  [lindex $::errorCode 1] == 1355
+              }
+        }
+    } -result 1
+
+    test find_domain_controller-10.1 {
+        Find domain controller -prefer
+    } -body {
+        if {[indomain]} {
+            string equal -nocase [twapi::find_domain_controller -prefer {directoryservice}] "$::env(LOGONSERVER).$::env(USERDNSDOMAIN)"
+        } else {
+            expr {
+                  [catch {twapi::find_domain_controller}] &&
+                  [lindex $::errorCode 0] eq "TWAPI_WIN32" &&
+                  [lindex $::errorCode 1] == 1355
+              }
+        }
+    } -result 1
+
+
+    test find_domain_controller-11.0 {
+        Find domain controller -require
+    } -body {
+        if {[indomain]} {
+            string equal -nocase [twapi::find_domain_controller -require {directoryservice timeserver  pdc}] "$::env(LOGONSERVER).$::env(USERDNSDOMAIN)"
+        } else {
+            expr {
+                  [catch {twapi::find_domain_controller}] &&
+                  [lindex $::errorCode 0] eq "TWAPI_WIN32" &&
+                  [lindex $::errorCode 1] == 1355
+              }
+        }
+    } -result 1
+
+    test find_domain_controller-12.0 {
+        Find domain controller -site
+    } -body {
+        if {[indomain]} {
+            string equal -nocase [twapi::find_domain_controller -site Default-First-Site-Name] "$::env(LOGONSERVER).$::env(USERDNSDOMAIN)"
+        } else {
+            expr {
+                  [catch {twapi::find_domain_controller}] &&
+                  [lindex $::errorCode 0] eq "TWAPI_WIN32" &&
+                  [lindex $::errorCode 1] == 1355
+              }
+        }
+    } -result 1
+
+    test find_domain_controller-12.1 {
+        Find domain controller -site (fail)
+    } -constraints {
+        domain
+    } -setup {
+        patience find_domain_controller-12.1
+    } -body {
+        twapi::find_domain_controller -site nosuchsite
+    } -result [twapi::map_windows_error 1355] -returnCodes error
+
+    test find_domain_controller-13.0 {
+        Find domain controller using -system
+    } -constraints {
+        domain
+    } -setup {
+        set dc_guid [twapi::kl_get [twapi::get_primary_domain_info -all] -domainguid]
+    } -body {
+        string equal -nocase [twapi::find_domain_controller -domain nosuchdomain -domainguid $dc_guid -system [test_dc]] \\\\[test_dc].$test_domain(dnsname)
+    } -result 1
+    
+
+    ################################################################
+
+    test adsi_translate_name-1.0 {
+        Translate an ADSI object dns name to format 1
+    } -constraints {
+        domain
+    } -body {
+        twapi::adsi_translate_name [testconfig domain_user]@[testconfig domain_dnsname] 1
+    } -result "CN=*,CN=Users,DC=[join [split [testconfig domain_dnsname] .] ,DC=]" -match glob
+
+    test adsi_translate_name-1.1 {
+        Translate an ADSI LANMAN name to format fqdn
+    } -constraints {
+        domain
+    } -body {
+        twapi::adsi_translate_name [testconfig domain_name]\\[testconfig domain_user] fqdn
+    } -result "CN=*,CN=Users,DC=[join [split [testconfig domain_dnsname] .] ,DC=]" -match glob
+
+    test adsi_translate_name-1.2 {
+        Translate an ADSI name in dns format to format 2
+    } -constraints {
+        domain
+    } -body {
+        twapi::adsi_translate_name [testconfig domain_user]@[testconfig domain_dnsname] 2
+    } -result [testconfig domain_name]\\[testconfig domain_user]
+
+    test adsi_translate_name-1.3 {
+        Translate an ADSI name in dns format to format samcompatible
+    } -constraints {
+        domain
+    } -body {
+        twapi::adsi_translate_name [twapi::adsi_translate_name [testconfig domain_user]@[testconfig domain_dnsname] fqdn] samcompatible
+    } -result [testconfig domain_name]\\[testconfig domain_user]
+
+    test adsi_translate_name-1.4 {
+        Translate an ADSI name in dns format to format 3
+    } -constraints {
+        domain
+    } -body {
+        twapi::adsi_translate_name [testconfig domain_user]@[testconfig domain_dnsname] 3
+    } -result * -match glob
+
+    test adsi_translate_name-1.5 {
+        Translate an ADSI name in samcompatible format to format display
+    } -constraints {
+        domain
+    } -body {
+        twapi::adsi_translate_name [testconfig domain_name]\\[testconfig domain_user] display
+    } -result * -match glob
+
+    test adsi_translate_name-1.6 {
+        Translate an ADSI name in dns format to format 6
+    } -constraints {
+        domain
+    } -body {
+        valid_guid [twapi::adsi_translate_name [testconfig domain_user]@[testconfig domain_dnsname] 6]
+    } -result 1
+
+    test adsi_translate_name-1.7 {
+        Translate an ADSI name in samcompatible format to format uniqueid
+    } -constraints {
+        domain
+    } -body {
+        valid_guid [twapi::adsi_translate_name [testconfig domain_name]\\[testconfig domain_user] uniqueid]
+    } -result 1
+
+    test adsi_translate_name-1.8 {
+        Translate an ADSI name in uniqueid format to format 7
+    } -constraints {
+        domain
+    } -body {
+        twapi::adsi_translate_name  [twapi::adsi_translate_name [testconfig domain_name]\\[testconfig domain_user] uniqueid] 7
+    } -result [testconfig domain_dnsname]/Users/* -match glob
+
+    test adsi_translate_name-1.9 {
+        Translate an ADSI name in samcompatible format to format canonical
+    } -constraints {
+        domain
+    } -body {
+        twapi::adsi_translate_name [testconfig domain_name]\\[testconfig domain_user] canonical
+    } -result [testconfig domain_dnsname]/Users/* -match glob
+
+    test adsi_translate_name-1.10 {
+        Translate an ADSI name in samcompatible format to format 8
+    } -constraints {
+        domain
+    } -body {
+        twapi::adsi_translate_name [testconfig domain_name]\\[testconfig domain_user] 8
+    } -result [testconfig domain_user]@[testconfig domain_dnsname]
+
+    test adsi_translate_name-1.11 {
+        Translate an ADSI name in canonical format to format userprincipal
+    } -constraints {
+        domain
+    } -body {
+        twapi::adsi_translate_name [twapi::adsi_translate_name [testconfig domain_name]\\[testconfig domain_user] canonical] userprincipal
+    } -result [testconfig domain_user]@[testconfig domain_dnsname]
+
+    test adsi_translate_name-1.12 {
+        Translate an ADSI name in uniqueid format to format 9
+    } -constraints {
+        domain
+    } -body {
+        twapi::adsi_translate_name  [twapi::adsi_translate_name [testconfig domain_name]\\[testconfig domain_user] uniqueid] 9
+    } -result [testconfig domain_dnsname]/Users\n* -match glob
+
+    test adsi_translate_name-1.13 {
+        Translate an ADSI name in samcompatible format to format canonicalex
+    } -constraints {
+        domain
+    } -body {
+        twapi::adsi_translate_name [testconfig domain_name]\\[testconfig domain_user] canonicalex
+    } -result [testconfig domain_dnsname]/Users\n* -match glob
+
+    test adsi_translate_name-1.14 {
+        Translate ADSI names to serviceprincipal and dnsdomain
+    } -constraints {
+        domain TBD
+    } -body {
+        # Returns errors on XP, try on newer OS'es
+    } -result unknown
+
+    test adsi_translate_name-1.15 {
+        Translate ADSI names to dnsdomain
+    } -constraints {
+        domain TBD
+    } -body {
+        # Returns errors on XP, try on newer OS'es
+    } -result [testconfig domain_dnsname]\\[testconfig domain_user]
+
+
+    test adsi_translate_name-2.0 {
+        Translate an ADSI object dns name specifying userprincipal source format
+    } -constraints {
+        domain
+    } -body {
+        twapi::adsi_translate_name [testconfig domain_user]@[testconfig domain_dnsname] fqdn userprincipal
+    } -result "CN=*,CN=Users,DC=[join [split [testconfig domain_dnsname] .] ,DC=]" -match glob
+
+    test adsi_translate_name-2.1 {
+        Translate an ADSI object dns name specifying source format 8
+    } -constraints {
+        domain
+    } -body {
+        twapi::adsi_translate_name [testconfig domain_user]@[testconfig domain_dnsname] fqdn 8
+    } -result "CN=*,CN=Users,DC=[join [split [testconfig domain_dnsname] .] ,DC=]" -match glob
+
+    test adsi_translate_name-2.2 {
+        Translate an ADSI object dns name specifying source format 2 (fail)
+    } -constraints {
+        domain
+    } -body {
+        twapi::adsi_translate_name [testconfig domain_user]@[testconfig domain_dnsname] fqdn 2
+    } -returnCodes error -result [twapi::map_windows_error 1317]
+
+    test adsi_translate_name-2.3 {
+        Translate an ADSI name specifying source format 2
+    } -constraints {
+        domain
+    } -body {
+        twapi::adsi_translate_name [testconfig domain_name]\\[testconfig domain_user] fqdn 2
+    } -result "CN=*,CN=Users,DC=[join [split [testconfig domain_dnsname] .] ,DC=]" -match glob
+
+    test adsi_translate_name-2.4 {
+        Translate an ADSI name specifying source format samcompatible
+    } -constraints {
+        domain
+    } -body {
+        twapi::adsi_translate_name [testconfig domain_name]\\[testconfig domain_user] userprincipal samcompatible
+    } -result [testconfig domain_user]@[testconfig domain_dnsname]
+
+    test adsi_translate_name-2.5 {
+        Translate an ADSI name specifying source format samcompatible (fail)
+    } -constraints {
+        domain
+    } -body {
+        twapi::adsi_translate_name [testconfig domain_user]@[testconfig domain_dnsname] userprincipal samcompatible
+    } -returnCodes error -result [twapi::map_windows_error 1317]
+
+    test adsi_translate_name-2.6 {
+        Translate an ADSI name specifying source format 6
+    } -constraints {
+        domain
+    } -body {
+        twapi::adsi_translate_name  [twapi::adsi_translate_name [testconfig domain_name]\\[testconfig domain_user] uniqueid] 7 6
+    } -result [testconfig domain_dnsname]/Users/* -match glob
+
+    test adsi_translate_name-2.7 {
+        Translate an ADSI name specifying source format uniqueid
+    } -constraints {
+        domain
+    } -body {
+        twapi::adsi_translate_name  [twapi::adsi_translate_name [testconfig domain_name]\\[testconfig domain_user] uniqueid] userprincipal uniqueid
+    } -result [testconfig domain_user]@[testconfig domain_dnsname]
+
+    ################################################################
+
+    test suspend_system-1.0 {
+        Suspend the system
+    } -constraints {
+        userInteraction
+    } -body {
+        if {![yesno "This test requires the system to be placed in standby. Do you want to run the test?"]} {
+            error "Test skipped as per user instruction."
+        }
+        pause "The system will be placed in a standby state. Please manually resume it."
+        twapi::suspend_system
+        yesno "Was the system successfully placed in standby?"
+    } -result 1
+
+    test suspend_system-1.1 {
+        Suspend the system (-state standby)
+    } -constraints {
+        userInteraction 
+    } -body {
+        if {![yesno "This test requires the system to be placed in standby. Do you want to run the test?"]} {
+            error "Test skipped as per user instruction."
+        }
+        pause "The system will be placed in a standby state. Please manually resume it."
+        twapi::suspend_system -state standby
+        yesno "Was the system successfully placed in standby?"
+    } -result 1
+
+    test suspend_system-1.2 {
+        Suspend the system (-state hibernate)
+    } -constraints {
+        userInteraction 
+    } -setup {
+        if {! [yesno "This test requires the system to be placed in hibernation. Do you want to run the test?"]} {
+            error "Test skipped as per user instruction."
+        }
+        pause "The system will be placed in hibernation. Please manually resume it."
+        twapi::suspend_system -state hibernate
+        yesno "Was the system placed into hibernation successfully?"
+    } -result 1
+
+    ################################################################
+
+    test get_processor_group_config-1.0 {
+        Test processor group config
+    } -body {
+        set c [twapi::get_processor_group_config]
+        list [dict exists $c -maxgroupcount] \
+            [dict exists $c -activegroups 0 -maxprocessorcount] \
+            [dict exists $c -activegroups 0 -activeprocessorcount] \
+            [dict exists $c -activegroups 0 -processormask]
+    } -result {1 1 1 1}
+
+    test get_processor_group_config-1.1 {
+        Test processor group config
+    } -constraints {
+        userInteraction
+    } -body {
+        pause "The processor group configuration will be displayed. Please verify it."
+        puts "Processor group config: [twapi::get_processor_group_config]\n"
+        yesno "Was the displayed processor group configuration correct?"
+    } -result 1
+
+    ################################################################
+
+    test get_numa_config-1.0 {
+        Test NUMA config
+    } -body {
+        set c [twapi::get_numa_config]
+        expr {[dict size $c] == 0 ||
+              ([dict exists $c 0 -group] && [dict exists $c 0 -processormask])}
+    } -result 1
+
+    test get_numa_config-1.1 {
+        Test NUMA config
+    } -constraints {
+        userInteraction
+    } -body {
+        pause "The NUMA configuration will be displayed. Please verify it."
+        puts "NUMA: [twapi::get_numa_config]\n"
+        yesno "Was the displayed NUMA configuration correct?"
+    } -result 1
+
+    ################################################################
+
+    ::tcltest::cleanupTests
+}
+
+namespace delete ::twapi::osinfo::test
