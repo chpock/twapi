@@ -1,0 +1,435 @@
+[comment {-*- tcl -*- doctools manpage}]
+[manpage_begin "Storage" n ""]
+[copyright "2003-2009 Ashok P. Nadkarni"]
+[moddesc "Disk information"]
+[titledesc "Commands related to files, disks and volumes"]
+[require twapi_storage]
+[description]
+[para]
+
+This package provides procedures related to file, 
+logical disk and volume information.
+For commands related to physical disks see the
+[uri device.html twapi_device] module.
+
+[section "Volumes"]
+
+The command [uri \#find_volumes [cmd find_volumes]] returns a list
+of volumes on the system.
+The command [uri \#get_volume_info [cmd get_volume_info]]
+returns various information about
+a volume (logical drive) including size and space utilization,
+file system characteristics and device.
+[para]
+The command [uri \#find_volume_mount_points [cmd find_volume_mount_points]]
+returns the list of volume mount points on a particular volume.
+Commands [uri \#mount_volume [cmd mount_volume]] and
+[uri \#unmount_volume [cmd unmount_volume]] can be
+used to set and remove volumes from volume mount points. The command
+[uri \#get_mounted_volume_name [cmd get_mounted_volume_name]] will return
+the name of the volume mounted on a drive letter or volume mount point.
+
+[section "Logical drives"]
+
+For all drive related commands,
+the [arg drive] parameter may be specified as a single
+drive letter, a drive letter followed by a [const :], or as the root path
+of the drive (eg. [const C:\\])
+
+[para]
+The command [uri \#find_logical_drives [cmd find_logical_drives]]
+returns a list of drives in the system
+of a specified type.
+[uri \#get_drive_type [cmd get_drive_type]]
+returns
+the type (fixed, remote, etc.) of the logical drive.
+
+[para]
+The command [uri \#user_drive_space_available [cmd user_drive_space_available]]
+can be used to check if
+sufficient free space is available on a drive.
+
+[para]
+The command [uri \#set_drive_label [cmd set_drive_label]]
+may be used to set the volume
+name (drive label).
+
+[para]
+The command [uri \#map_drive_local [cmd map_drive_local]]
+and [uri \#unmap_drive_local [cmd unmap_drive_local]]
+may be used to assign and unassign a drive letter to a local path.
+
+[section "File system"]
+
+The commands [uri \#begin_filesystem_monitor [cmd begin_filesystem_monitor]]
+and [uri \#cancel_filesystem_monitor [cmd cancel_filesystem_monitor]]
+can be used for monitoring changes to the file system.
+
+[para]
+The commands [uri \#get_file_times [cmd get_file_times]] and
+[uri \#set_file_times [cmd set_file_times]] and
+allow retrieval and setting of the times associated with a file.
+
+[para]
+The command [uri #flush_channel [cmd flush_channel]] flushes
+operating system buffers associated with a Tcl channel to disk.
+
+[section Commands]
+[list_begin definitions]
+
+[call [cmd begin_filesystem_monitor] [arg PATH] [arg SCRIPT] [opt [arg options]]]
+
+Registers [arg SCRIPT] to be invoked when the specified types of changes
+occur in the directory of subtree matching [arg PATH].
+[nl]
+The command returns an id corresponding to the monitoring callback.
+When no longer interested in the specified changes, the
+returned identifier should be passed to
+[uri \#cancel_filesystem_monitor [cmd cancel_filesystem_monitor]] to end
+the monitoring.
+[nl]
+The following options specify the type of changes to be monitored:
+[list_begin opt]
+[opt_def [cmd -access] [arg BOOLEAN]] If true, changes to the last access
+time are monitored.
+[opt_def [cmd -attr] [arg BOOLEAN]] If true, attribute changes,
+are monitored.
+[opt_def [cmd -create] [arg BOOLEAN]] If true, changes to the creation
+times are monitored.
+[opt_def [cmd -dirname] [arg BOOLEAN]] If true, directory name changes,
+ including creation and renaming, are monitored.
+[opt_def [cmd -filename] [arg BOOLEAN]] If true, file name changes, including
+file creation, renaming and deletion, are monitored.
+[opt_def [cmd -patterns] [arg PATTERNLIST]] If specified, notification
+callbacks are invoked only on those files and directories that
+match one of the patterns in [arg PATTERNLIST]. See below for more detail.
+[opt_def [cmd -secd] [arg BOOLEAN]] If true, changes to security descriptors
+in the specified
+directories are monitored.
+[opt_def [cmd -size] [arg BOOLEAN]] If true, size changes in the specified
+directories are monitored.
+[opt_def [cmd -subtree] [arg BOOLEAN]] If true, all subdirectories under the
+specified directory [arg PATH] are monitored in addition to [arg PATH] itself.
+If false (default), only the directory
+indicated by [arg PATH] is monitored.
+[opt_def [cmd -write] [arg BOOLEAN]] If true, changes to the last
+write time of files in the specified
+directories are monitored.
+[list_end]
+By default, all options are false if unspecified. However, if no options
+related to the type changes to be monitored
+are present (either true or false),
+the command will monitor all types of changes.
+[nl]
+When a file system change is detected, the [arg SCRIPT] is invoked after
+being appended with two additional parameters the first being
+the id that was returned by the command and the second
+being a list of alternating elements consisting of
+the notification type and the file or directory name
+(except when the type is [const error]). The type
+is one of the following values:
+[list_begin opt]
+[opt_def [const added]] The file or directory was added.
+[opt_def [const removed]] The file or directory was deleted.
+[opt_def [const modified]] The file or directory was modified. This includes
+changes to attributes or timestamps.
+[opt_def [const renameold]] The file or directory was renamed. The associated
+name is the old name.
+[opt_def [const renamenew]] The file or directory was renamed. The associated
+name is the new name.
+[opt_def [const error]] There was an error in the operation. In this case
+the corresponding paired element is an error code.
+On receiving
+an error notification, the monitoring should generally be canceled
+by calling [uri #cancel_filesystem_monitor [cmd cancel_filesystem_monitor]].
+[list_end]
+Note that the file names being reported
+may be either in longname or shortname (8.3) format. Moreover, depending
+on the buffering and caching by the operating system, a single write may
+result in one or more notifications.
+
+[nl]
+If the [cmd -patterns] option is specified, then the value associated with
+the option is a pattern filter that is used to match against the name component
+being reported. [arg SCRIPT] will be invoked only if the pattern filter
+matches.
+
+[nl]
+Each element of the pattern list is a string beginning
+with either [const +] or [const -] followed by a pattern that is used
+for matching using the same rules as for
+the Tcl [cmd "string match -nocase"] command.
+Note that [const \\] path separator need to be escaped with another [const \\]
+just as in the [cmd "string match"] case. Alternatively, you can use [const /]
+as the path separator in the pattern.
+
+[nl]
+The name component being
+reported is matched against each element of the pattern list. When
+a match occurs, further elements of the pattern list are not matched.
+If the matching element is prefixed with a [const +], then [arg SCRIPT] is invoked.
+If the matching element is prefixed with a [const -], then the pattern filter
+is deemed to have not matched and [arg SCRIPT] is not invoked for the notification.
+Even in this case, no further matching is attempted against the remaining patterns.
+Pattern elements that do not begin with [const +], or [const -] are treated
+as having an implicit [const +] prefix.
+
+[nl]
+If a non-empty pattern filter is specified but no element matches,
+the pattern filter is treated as having not matched, and
+[arg SCRIPT] is not invoked. Thus a pattern filter that only has
+[const -] type elements will never match anything.
+Note a pattern list where no element matches is different from the case where
+[cmd -patterns] is not specified or [arg PATTERNLIST] is empty in
+which case the pattern filter is treated as matched.
+
+[nl]
+Note that the pattern matching is done
+only against the name component being reported, not against the full path.
+
+[nl]
+Some examples of pattern matching are below
+(assume callback is your [arg SCRIPT] procedure):
+
+[example "begin_filesystem_monitor c:/temp callback -patterns {*.exe}"]
+will only monitor files in [const c:\\temp] with [const .exe] extensions.
+
+[example "begin_filesystem_monitor c:/temp callback -patterns {-*.foo +*.fo*}"]
+will monitor files in [const c:\\temp] with an extension beginning with
+[const .fo] except if the extension is [const .foo].
+
+[example "begin_filesystem_monitor c:/temp callback -patterns {+*.fo* -*.foo}"]
+will monitor files in [const c:\\temp] with an extension beginning with
+[const .fo] [emph including] those with extension [const .foo]. The second pattern
+[const -*.foo] has no effect as the matching stops as soon as a match is found.
+
+[nl]
+This command requires a threaded build of Tcl and will raise an exception
+on non-threaded builds.
+
+[call [cmd cancel_filesystem_monitor] [arg MONITORID]]
+Cancels monitoring of the file system corresponding to [arg MONITORID]
+which must be an identifier
+returned by [uri \#begin_filesystem_monitor [cmd begin_filesystem_monitor]].
+
+[call [cmd find_logical_drives] [opt "[cmd -type] [arg DRIVETYPELIST]"]]
+
+Returns a list of the logical drives in the system. If option [cmd -type]
+not specified, all drives in the system are returned. Otherwise, only drives
+whose type is in [arg DRIVETYPELIST] are returned.
+[arg DRIVETYPELIST] must be a subset of the
+values returned by the [uri \#get_drive_type [cmd get_drive_type]] command.
+
+[call [cmd find_volumes]]
+Returns the list of volumes in the system. Each entry in the list includes
+a trailing slash.
+
+[call [cmd find_volume_mount_points] [arg VOLNAME]]
+Returns the list of volume mount points on the volume whose
+name is [arg VOLNAME].
+
+[call [cmd flush_channel] [arg CHANNEL]]
+Flushes operating system buffers associated with a Tcl channel to disk.
+
+[call [cmd get_drive_info] [arg DRIVE] [opt [arg options]]]
+
+Synonym for [uri \#get_volume_info [cmd get_volume_info]].
+
+[call [cmd get_drive_type] [arg DRIVE]]
+
+Returns the type of the drive - [const unknown],
+[const removable], [const fixed], [const remote], [const cdrom] or
+[const ramdisk] or [const invalid].
+
+[call [cmd get_file_times] [arg FILE] [opt [arg options]]]
+Retrieves the creation, access and modification timestamps for a file.
+The latter two are available through the Tcl [cmd file] command which
+however does not provide the creation time for a file. [arg FILE] may
+either be the path to the file, an open Tcl channel to the open file or
+a Win32 handle to an open file. In the latter two cases, the file must
+have been opened for read access.
+[nl]
+The information returned is a flat list of option value pairs. [arg options],
+which may contain one or more of the following values, controls the
+information returned.
+[list_begin opt]
+[opt_def [cmd -all]] Returns all fields.
+[opt_def [cmd -atime]] Returns the time of last access for the file.
+[opt_def [cmd -ctime]] Returns the creation time for the file.
+[opt_def [cmd -mtime]] Returns the time of last modification for the file.
+[list_end]
+All times are returned in the same format as
+[uri osinfo.html\#get_system_time [cmd get_system_time]].
+
+
+[call [cmd get_mounted_volume_name] [arg MOUNTPOINT]]
+
+Returns the name of a mounted volume.
+The returned name has a trailing backslash appended.
+[arg MOUNTPOINT] must specify a root directory of a local drive or path
+to a volume mount point. Specifying remote file shares will generate
+an error.
+
+[call [cmd get_volume_info] [arg DRIVE] [opt [arg options]]]
+
+Returns attributes and properties of the specified volume as a list of
+the form "[arg option1] [arg value1] ...". [arg DRIVE] may be either a
+DOS drive, file share or a volume. Note certain options are not valid except
+when [arg DRIVE] specifies a drive letter (see below).
+
+[nl]
+The values returned depend on which of the following options are specified:
+
+[list_begin opt]
+[opt_def [cmd -all]] Returns all fields except [cmd -extents],
+[cmd -type] and [cmd -device]
+which have to be explicitly specified since they are not valid for volumes.
+[opt_def [cmd -attr]] Returns a list containing one or more
+of the values
+[const case_preserved_names],
+[const unicode_on_disk],
+[const persistent_acls],
+[const file_compression],
+[const volume_quotas],
+[const supports_sparse_files],
+[const supports_reparse_points],
+[const supports_remote_storage],
+[const volume_is_compressed],
+[const supports_object_ids],
+[const supports_encryption],
+[const named_streams],
+[const read_only_volume],
+[const sequential_write_once],
+[const supports_transactions],
+[const supports_hard_links],
+[const supports_extended_attributes],
+[const supports_open_by_file_id], or
+[const supports_usn_journal].
+
+These indicate the features supported by the drive's file system. Refer
+to the documentation for [cmd GetVolumeInformation] function in the Windows SDK
+for details on these.
+[opt_def [cmd -device]]
+Returns a list the first element of which is the device name mapping
+for the drive.
+Remaining elements containing prior undeleted mappings for the drive.
+Only valid if [arg DRIVE] is a drive letter. For UNC paths, an empty
+string will be returned.
+[opt_def [cmd -extents]] Returns a list of disk extents describing
+the physical location of the volume. Each disk extent is a keyed list
+containing 3 fields: [const -disknumber] identifying the physical disk,
+[const -startingoffset] containing the byte offset in the physical disk
+that the extent starts at, and [const -extentlength] containing the size
+of the extent. An empty list is returned for extents if they cannot be
+determined (for example, for remote drives).
+[opt_def [cmd -freespace]]
+Returns the total size of the unused space on the drive in bytes.
+[opt_def [cmd -fstype]]
+Returns the type of the file system on the volume (eg. [const NTFS]).
+[opt_def [cmd -label]]
+Returns the label of the drive.
+[opt_def [cmd -maxcomponentlen]]
+Returns the maximum length allowed for a single component in a file path.
+[opt_def [cmd -serialnum]]
+Returns the serial number of the drive in hexadecimal format.
+[opt_def [cmd -size]] Returns the size of the drive in bytes.
+[opt_def [cmd -type]]
+Returns the type of the drive. Only valid if [arg DRIVE] is a drive letter.
+This may have one of the values [const unknown],
+[const removable], [const fixed], [const remote], [const cdrom] or
+[const ramdisk]. In case the drive path is invalid, the value [const invalid]
+is returned in this field.
+[opt_def [cmd -used]]
+Returns the total size of the used space on the drive in bytes.
+[opt_def [cmd -useravail]]
+Returns the total size of the unused space on the drive that is available
+for the caller. This may be less than the [const freespace] field if quotas are
+in effect.
+[list_end]
+
+[call [cmd get_volume_mount_point_for_path] [arg PATH]]
+Returns the volume mount point below which the file specified by [arg PATH]
+resides. Refer to documentation for [cmd GetVolumePathName] in the Windows
+SDK for more details.
+
+[call [cmd map_drive_local] [arg DRIVE] [arg PATH] [opt [arg options]]]
+
+Maps the fully qualified path [arg PATH] to the specified drive letter.
+The mapping established by this command is not persistent across reboots. It
+may also be removed using the [cmd unmap_drive_local] command.
+[nl]
+The following options may be specified with the command:
+[list_begin opt]
+[opt_def [cmd -raw]] Specifies that [arg PATH] is a raw path specification that
+includes the device name as opposed to a drive letter.
+[list_end]
+
+[call [cmd mount_volume] [arg MOUNTPOINTPATH] [arg VOLNAME]]
+Mounts the volume specified by [arg VOLNAME] at the mount point specified
+by [arg MOUNTPOINTPATH]. The directory [arg MOUNTPOINTPATH] must be empty.
+[arg VOLNAME] must be of the form [const \\\\?\\VOLUME{[arg GUID]}\\].
+
+If any volume is already mounted at [arg MOUNTPOINTPATH], it will be silently
+unmounted before the new mount is performed.
+
+[call [cmd set_drive_label] [arg DRIVE] [arg NAME]]
+
+Sets the volume name for the specified drive.
+[arg NAME] may be an empty string
+in which case the drive label is removed.
+
+[call [cmd set_file_times] [arg FILE] [opt [arg options]]]
+Sets the creation, access or modification timestamps for a file.
+[arg FILE] may
+either be the path to the file, an open Tcl channel to the open file or
+a Win32 handle to an open file. In the latter two cases, the file must
+have been opened for write access.
+[nl]
+The timestamps modified depend on the options specified:
+[list_begin opt]
+[opt_def [cmd -atime] [arg LARGETIMESTAMP]] Sets the time of last access for the file.
+[opt_def [cmd -ctime] [arg LARGETIMESTAMP]] Sets the creation time for the file.
+[opt_def [cmd -mtime] [arg LARGETIMESTAMP]] Sets the time of last modification for the file.
+[opt_def [cmd -preserveatime]] Indicates that the time of last access for
+an open file should be preserved and not updated when the file is closed.
+This option can only be specified if [arg FILE] is either an open Tcl channel
+or Win32 handle and not if it is a file path. Also, the option cannot
+be used together with [cmd -atime].
+[list_end]
+All time values must be specified in the same format as
+[uri osinfo.html\#get_system_time [cmd get_system_time]]. You can
+use [uri base.html\#secs_since_1970_to_large_system_time [cmd secs_since_1970_to_large_system_time]]
+to convert the format used by Tcl's [cmd clock] command to this format.
+
+
+[call [cmd unmap_drive_local] [arg DRIVE] [opt [arg options]]]
+
+Unmaps the drive specified by [arg DRIVE]. This must reference a local drive.
+The following options may be specified with the command:
+[list_begin opt]
+[opt_def [cmd -path] [arg PATH]]
+Specifies that the drive should be unmapped only if it refers to the
+location specified by [arg PATH]. This is useful to ensure drive letters
+are not unmapped when they have been redefined to point elsewhere.
+[opt_def [cmd -raw]] Specifies that [arg PATH] argument specified with
+the [cmd -path] option is a raw path specification that
+includes the device name as opposed to a drive letter.
+[list_end]
+
+[call [cmd unmount_volume] [arg MOUNTPOINTPATH]]
+Unmounts the volume at the mount point specified by [arg MOUNTPOINTPATH].
+If [arg MOUNTPOINTPATH] is a root directory of a drive, the corresponding
+DOS drive letter mapping is removed.
+
+[call [cmd user_drive_space_available] [arg drive] [arg space]]
+Returns 1 if the given drive has at least [arg space] bytes free, and
+0 otherwise. Note that [arg space] is compared to the free bytes
+available to the caller as opposed to total free bytes on the drive. The
+former may be smaller if disk quotas are being enforced on the drive.
+
+
+[list_end]
+
+[keywords disk drive volume "drive label" "drive list" "file system type" "disk space" "disk serial number" "drive attributes" "map drive" "monitor file changes" "file change notifications" "volumes" "volume mount points" "file property dialog" "volume property dialog" "file version" "version resource" "file create time" "file modification time" "file access time" "partitions" "volume extents" "disk geometry"]
+
+[manpage_end]
