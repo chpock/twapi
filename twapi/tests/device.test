@@ -1,0 +1,918 @@
+#
+# Copyright (c) 2008-2012, Ashok P. Nadkarni
+# All rights reserved.
+#
+# See the file LICENSE for license
+
+# This file contains tests for commands from the device.tcl
+
+package require tcltest
+eval tcltest::configure $argv
+
+source [file join [file dirname [info script]] testutil.tcl]
+load_twapi_package twapi_device
+load_twapi_package twapi_share
+load_twapi_package twapi_security
+
+namespace eval twapi::device::test {
+    namespace import ::tcltest::test
+
+    proc find_cdrom {} {
+        foreach drive [twapi::find_logical_drives] {
+            if {![catch {twapi::get_drive_type $drive} drive_type]} {
+                if {$drive_type eq "cdrom"} {
+                    return $drive
+                }
+            }
+        }
+        error "No cdrom found"
+    }
+
+    proc fill_physical_disks {{force 0}} {
+        variable physical_disks
+        if {[info exists physical_disks] && ! $force} {
+            return;             # Only fill once, assume will not change
+        }
+        foreach disk [wmic_records Win32_DiskDrive] {
+            set id [dict get $disk pnpdeviceid]
+            set physical_disks([string tolower $id]) $disk
+        }
+    }
+
+    proc verify_physical_disk {id {diskdata {}}} {
+        variable physical_disks
+        fill_physical_disks
+        set orig_id $id
+        set id [string tolower $id]
+        # Try and match id against known disk ids
+        if {![info exists physical_disks($id)]} {
+            # Strip of \\?\ if present
+            if {[string range $id 0 3] eq "\\\\?\\"} {
+                set id [string range $id 4 end]
+            }
+            if {![info exists physical_disks($id)]} {
+                # Still no match, convert "#" to \ and check
+                set id [string map [list # \\] $id]
+                if {![info exists physical_disks($id)]} {
+                    # Still no go, one last chance - strip the GUID
+                    if {(![regexp {^(.*)\\\{[[:xdigit:]]{8}-[[:xdigit:]]{4}-[[:xdigit:]]{4}-[[:xdigit:]]{4}-[[:xdigit:]]{12}\}$} $id _ id]) || ![info exists physical_disks($id)]} {
+                        return "Could not find disk $orig_id in physical disk table"
+                    }
+                }
+            }
+        }
+
+        # We have a match. Compare whatever fields we can
+        foreach {field wmifield} {
+            -sectorspertrack    sectorspertrack
+            -trackspercylinder  trackspercylinder 
+            -cylinders          totalcylinders
+            -bytespersector     bytespersector
+        } {
+            if {[dict exists $diskdata -geometry $field] &&
+                [dict get $diskdata -geometry $field] != [dict get $physical_disks($id) $wmifield]} {
+                return "Sectors per track does not match ([dict get $diskdata -geometry $field] != [dict get $physical_disks($id) $wmifield])"
+            }
+        }
+
+        if {[dict exists $diskdata -geometry -mediatype]} {
+            set value [dict get $diskdata -geometry -mediatype]
+            set wmivalue [dict get $physical_disks($id) mediatype]
+            # We use regexp because the wmi values have arbitrary whitespace/tabs!
+            switch -exact --  $value {
+                11 {
+                    if {![string match -nocase "Removable media*" $wmivalue]} {
+                        return "Media type $value does not match $wmivalue."
+                    }
+                }
+                12 {
+                    if {![regexp -nocase {^Fixed\s+hard\s+disk\s+media$} $wmivalue]} {
+                        return "Media type $value does not match $wmivalue."
+                    }
+                }
+            }
+        }
+        # TBD - how to verify partition-specific info? wmi win32_diskpartition
+        # does not seem to return extended partition members
+
+        return ""
+    }
+
+    proc verify_physical_disk_layout_fields {layout} {
+        if {[twapi::min_os_version 5 1]} {
+            set part_fields {-partitionstyle -startingoffset -partitionlength -partitionnumber -rewritepartition}
+            set layout_fields {-partitions -partitioncount -partitionstyle}
+            switch -exact -- [twapi::kl_get $layout -partitionstyle] {
+                mbr {
+                    lappend layout_fields -signature
+                    lappend part_fields -hiddensectors -partitiontype -bootindicator -recognizedpartition
+                }
+                gpt {
+                    lappend layout_fields -startingusableoffset -usablelength -maxpartitioncount
+                    lappend part_fields -partitiontype -partitionif -attributes -name
+                }
+                raw -
+                unknown {
+                    # No additional fields
+                }
+                default {
+                    append result "Unknown partition type in partition <$part>"
+                }
+            }
+
+            verify_kl_fields $layout $layout_fields
+            set parts [twapi::kl_get $layout -partitions]
+            verify_list_kl_fields $parts $part_fields
+        } else {
+            verify_kl_fields $layout {
+                -partitions -partitioncount -signature
+            }
+            verify_list_kl_fields [twapi::kl_get $layout -partitions] {
+                -bootindicator -hiddensectors -partitionlength -partitionnumber -partitiontype -recognizedpartition -rewritepartition -startingoffset  
+            }
+        }
+    }
+
+    ################################################################
+
+    test device_setup_class_name_to_guids-1.0 {
+        Get the guids for a device setup class name
+    } -constraints {
+        nt
+    } -body {
+        string tolower [::twapi::device_setup_class_name_to_guids "Net"]
+    } -result "{{4d36e972-e325-11ce-bfc1-08002be10318}}"
+
+    ################################################################
+
+    test device_setup_class_guid_to_name-1.0 {
+        Get the name for a device setup class guid
+    } -constraints {
+        nt
+    } -body {
+        ::twapi::device_setup_class_guid_to_name "{4D36E972-E325-11CE-bfc1-08002be10318}"
+    } -result Net
+
+    ################################################################
+
+    test get_devinfoset_registry_properties-1.0 {
+    } -constraints {
+        nt TBD
+    } -body {
+    } -result ""
+
+    ################################################################
+
+    # Does not actually modify system but under systemmodificationok
+    # in case the ioctl goes horribly wrong
+    test device_ioctl-1.0 {
+        Test a device ioctl
+    } -constraints {
+        systemmodificationok
+    } -setup {
+        set drive $::env(HOMEDRIVE); # Will error if does not exist
+        if {! [file exists [file join $drive /]]} {
+            error "Drive $drive does not exist"
+        }
+        set device_handle [twapi::create_file "\\\\.\\$drive" -createdisposition open_existing]
+    } -cleanup {
+        twapi::CloseHandle $device_handle
+    } -body {
+        # This does a very rudimentary check. The get_volume_info test
+        # in disk module is more comprehensive
+        set bin [twapi::device_ioctl $device_handle 0x560000 -outputcount 32]
+        binary scan $bin i nextents
+    } -result 1
+
+
+    ################################################################
+
+    proc device_notifier_test_handler {id event args} {
+        lappend ::device_test_notifications [linsert $args 0 $id $event]
+    }
+
+    proc device_arrival_removal_handler {id event args} {
+        lappend ::device_test_notifications [linsert $args 0 $id $event]
+        if {$event eq "deviceremovecomplete"} {
+            set ::device_notifications_done 1
+        }
+    }
+
+    test start_device_notifier-1.0 {
+        Start a device notifier
+    } -constraints {
+        userInteraction
+    } -body {
+        set ::device_test_notifications {}
+        set id [twapi::start_device_notifier "lappend ::device_test_notifications"]
+        pause "Please insert a USB device."
+        set after_id [after 2000 set ::device_notifications_done 1]
+        vwait ::device_notifications_done
+        after cancel $after_id
+        twapi::stop_device_notifier $id
+        pause "Please remove the USB device before continuing."
+        expr {[llength $::device_test_notifications] > 0}
+    } -result 1
+
+
+    test start_device_notifier-2.0 {
+        Start a device notifier for a specific interface
+    } -constraints {
+        userInteraction TBD
+    } -body {
+        set ::device_test_notifications {}
+        #        set id [twapi::start_device_notifier [namespace current]::device_notifier_test_handler]
+        set id [twapi::start_device_notifier [namespace current]::device_notifier_test_handler -deviceinterface TBD_WHAT_INTERFACEGUID_TO_USE?]
+        pause "Please insert a USB device."
+        set after_id [after 2000 set ::device_notifications_done 1]
+        vwait ::device_notifications_done
+        after cancel $after_id
+        twapi::stop_device_notifier $id
+        pause "Please remove the USB device before continuing."
+        expr {[llength $::device_test_notifications] > 0}
+    } -result 1
+
+    # Verify new drive arrival and removal
+    proc verify_device_notifications { notifications id ifc attrs v_msgs} {
+        upvar 1 $v_msgs msgs
+
+        set found_arrival 0
+        set found_removal 0
+        foreach notif $notifications {
+            set notif_id    [lindex $notif 0]
+            set notif_event [lindex $notif 1]
+            if {$notif_id ne $id} {
+                lappend msgs "Invalid notification id '$notif_id'. Expected '$id'"
+                continue
+            }
+            if {$notif_event eq "devnodes_changed"} {
+                continue
+            }
+            if {[lsearch -exact {devicearrival deviceremovecomplete} $notif_event] < 0} {
+                lappend msgs "Unexpected event '$notif_event'"
+                continue
+            }            
+
+            if {[lindex $notif 2] ne "volume"} {
+                continue
+            }
+
+            if {$notif_event eq "devicearrival"} {
+                set found_arrival 1
+            } else {
+                set found_removal 1
+            }
+            
+            set notif_drives [lindex $notif 3]
+            set notif_attrs  [lindex $notif 4]
+            if {![equal_sets $attrs $notif_attrs]} {
+                lappend msgs "Attributes do not match, got '[join $notif_attrs ,]', expected '[join $attrs ,]'"
+            }
+            # Verify the drives
+            if {[llength $notif_drives] == 0} {
+                lappend msgs "No drives listed in volume notification."
+            } else {
+                foreach drive $notif_drives {
+                    if {! [regexp {^[A-Z]:$} $drive]} {
+                        lappend msgs "Invalid drive '$drive'  listed in volume devicearrival notification."
+                    }
+                }
+            }
+        }
+        
+        if {! $found_arrival} {
+            lappend msgs "No devicearrival event encountered."
+        }
+
+        if {! $found_removal} {
+            lappend msgs "No deviceremovecomplete event encountered."
+        }
+    }
+
+    test start_device_notifier-2.1 {
+        Start a device notifier for volumes (USB device)
+    } -constraints {
+        userInteraction
+    } -body {
+        pause "Please remove the test USB device if currently inserted."
+        set ::device_test_notifications {}
+        set id [twapi::start_device_notifier [namespace current]::device_arrival_removal_handler -deviceinterface volume]
+        pause "Please insert and then remove the test USB device."
+        set after_id [after 15000 set ::device_notifications_done timeout]
+        vwait ::device_notifications_done
+        after cancel $after_id
+        twapi::stop_device_notifier $id
+        set msgs {}
+        verify_device_notifications $::device_test_notifications $id volume {} msgs
+        join $msgs \n
+    } -result {}
+
+    test start_device_notifier-2.2 {
+        Start a device notifier for volumes (CD mediachange)
+    } -constraints {
+        userInteraction
+    } -body {
+        pause "Please make sure CD-ROM tray is empty"
+        set ::device_test_notifications {}
+        set id [twapi::start_device_notifier [namespace current]::device_arrival_removal_handler -deviceinterface volume]
+        pause "Please insert a CD-ROM, wait for it to be recognized, then eject it."
+        set after_id [after 30000 set ::device_notifications_done timeout]
+        vwait ::device_notifications_done
+        after cancel $after_id
+        twapi::stop_device_notifier $id
+        set msgs {}
+        verify_device_notifications $::device_test_notifications $id volume {mediachange} msgs
+        join $msgs \n
+    } -result {}
+
+    test start_device_notifier-2.3 {
+        Start a device notifier for volumes (device arrival networkvolume)
+    } -constraints {
+        systemmodificationok
+    } -setup {
+        set dir [tcltest::makeDirectory [clock clicks]]
+        set share TWAPI_EXPORT_[clock clicks]
+        twapi::new_share $share [file nativename $dir]
+    } -body {
+        set ::device_test_notifications {}
+        set id [twapi::start_device_notifier [namespace current]::device_arrival_removal_handler -deviceinterface volume]
+        # Note - notifications are only generated if mapped to local device
+        set drive [twapi::connect_share \\\\127.0.0.1\\$share -localdevice *]
+        set after_id [after 15000 set ::device_notifications_done timeout]
+        twapi::disconnect_share $drive
+        vwait ::device_notifications_done
+        after cancel $after_id
+        twapi::stop_device_notifier $id
+        set msgs {}
+        verify_device_notifications  $::device_test_notifications $id volume {networkvolume} msgs
+        join $msgs \n
+    } -cleanup {
+        twapi::delete_share $share
+    } -result {}
+
+    test start_device_notifier-4.0 {
+        Start a device notifier for a handle
+    } -constraints {
+        userInteraction TBD
+    } -body {
+        Check the -handle option
+    } -result {}
+
+    test start_device_notifier-4.1 {
+        Start a device notifier for a handle (devicequeryremove allow)
+    } -constraints {
+        userInteraction TBD
+    } -body {
+        Check the -handle option
+    } -result {}
+
+
+    test start_device_notifier-4.2 {
+        Start a device notifier for a handle (devicequeryremove deny)
+    } -constraints {
+        userInteraction TBD
+    } -body {
+        Check the -handle option
+    } -result {}
+
+
+    ################################################################
+
+    test stop_device_notifier-1.0 {
+        Stop a device notifier
+    } -constraints {
+        systemmodificationok
+    } -setup {
+        set dir [tcltest::makeDirectory [clock clicks]]
+        set share TWAPI_EXPORT_[clock clicks]
+        twapi::new_share $share [file nativename $dir]
+    } -body {
+        patience stop_device_notifier-1.0
+        set ::device_test_notifications {}
+        set id [twapi::start_device_notifier [namespace current]::device_notifier_test_handler -deviceinterface volume]
+        set drive [twapi::connect_share \\\\127.0.0.1\\$share -localdevice *]
+        set after_id [after 1000 set ::device_notifications_done 1]
+        vwait ::device_notifications_done
+        after cancel $after_id
+
+        # Now stop notifications
+        set after_id [after 10000 set ::device_notifications_done 1]
+        twapi::disconnect_share $drive
+        twapi::stop_device_notifier $id
+        vwait ::device_notifications_done
+        after cancel $after_id
+        set msgs {}
+        verify_device_notifications  $::device_test_notifications $id volume {networkvolume} msgs
+        join $msgs \n
+    } -cleanup {
+        twapi::delete_share $share
+    } -result "No deviceremovecomplete event encountered."
+
+    ################################################################
+
+    test find_physical_disks-1.0 {
+        Find physical drives in the system
+    } -constraints {
+        nt
+    } -body {
+        set disks [twapi::find_physical_disks]
+        if {[llength $disks] == 0} {
+            set result "No disks found."
+        } else {
+            set result ""
+            foreach disk $disks {
+                append result [verify_physical_disk $disk {}]
+            }
+        }
+        set result
+    } -result ""
+
+    ################################################################
+    
+    test get_physical_disk_info-1.0 {
+        Get physical drive information (no options)
+    } -constraints {
+        nt
+    } -body {
+        twapi::get_physical_disk_info [lindex [twapi::find_physical_disks] 0]
+    } -result ""
+
+    test get_physical_disk_info-2.0 {
+        Get physical drive information (-geometry)
+    } -constraints {
+        nt
+    } -body {
+        foreach disk [twapi::find_physical_disks] {
+            ::twapi::trap {
+                set vals [twapi::get_physical_disk_info $disk -geometry]
+            } onerror {TWAPI_WIN32 21} {
+                # Disk not ready, ignore
+                continue
+            }
+            verify_kl_fields $vals [list -geometry]
+            verify_kl_fields [lindex $vals 1] {
+                -sectorspertrack -trackspercylinder -cylinders -bytespersector -mediatype
+            }
+            append result [verify_physical_disk $disk $vals]
+        }
+        set result
+    } -result ""
+
+    test get_physical_disk_info-3.0 {
+        Get physical drive information (-layout)
+    } -constraints {
+        nt
+    } -body {
+        foreach disk [twapi::find_physical_disks] {
+            ::twapi::trap {
+                set vals [twapi::get_physical_disk_info $disk -layout]
+            } onerror {TWAPI_WIN32 21} {
+                # Disk not ready, ignore
+                continue
+            }
+            verify_kl_fields $vals [list -layout]
+            verify_physical_disk_layout_fields [lindex $vals 1]
+            append result [verify_physical_disk $disk $vals]
+        }
+        set result
+    } -result ""
+
+    test get_physical_disk_info-4.0 {
+        Get physical drive information (-all)
+    } -constraints {
+        nt
+    } -body {
+        foreach disk [twapi::find_physical_disks] {
+            ::twapi::trap {
+                set vals [twapi::get_physical_disk_info $disk -all]
+            } onerror {TWAPI_WIN32 21} {
+                # Disk not ready, ignore
+                continue
+            }
+            verify_kl_fields $vals [list -layout -geometry]
+            verify_kl_fields [twapi::kl_get $vals -geometry] {
+                -sectorspertrack -trackspercylinder -cylinders -bytespersector -mediatype
+            }
+            verify_physical_disk_layout_fields [twapi::kl_get $vals -layout]
+            append result [verify_physical_disk $disk $vals]
+        }
+        set result
+    } -result ""
+
+
+    ################################################################
+
+    test eject-1.0 {
+        Eject and load cdrom (eject_media)
+    } -constraints {
+        userInteraction
+    } -body {
+        pause "Please make sure the CD-ROM is closed."
+        twapi::eject_media cdrom
+        set ejected [yesno "Did the CD-ROM get ejected?"]
+        if {$ejected} {
+            set load_error [catch {twapi::load_media cdrom} msg errdict]
+            if {$load_error} {
+                set loaded 0
+            } else {
+                set loaded [yesno "Did the CD-ROM get closed? If not please close it."]
+            }
+        } else {
+            set load_error 0
+            set loaded 0
+        }
+        # Not all cd-roms will support loading. Will return Windows error 1
+        list $ejected [expr {$loaded || ($load_error && [lindex [dict get $errdict -errorcode] 1] == 1)}]
+    } -result {1 1}
+
+    test eject-1.1 {
+        Eject and load using drive letter (eject, and also verifies eject unlocks if necessary)
+    } -constraints {
+        userInteraction
+    } -setup {
+        set drive [find_cdrom]
+    } -body {
+        pause "Please make sure the CD-ROM is closed."
+        twapi::lock_media $drive
+        twapi::eject $drive
+        set ejected [yesno "Did the CD-ROM get ejected?"]
+        if {$ejected} {
+            set load_error [catch {twapi::load_media cdrom} msg errdict]
+            if {$load_error} {
+                set loaded 0
+            } else {
+                set loaded [yesno "Did the CD-ROM get closed? If not please close it."]
+            }
+        } else {
+            set load_error 0
+            set loaded 0
+        }
+        # Not all cd-roms will support loading. Will return Windows error 1
+        list $ejected [expr {$loaded || ($load_error && [lindex [dict get $errdict -errorcode] 1] == 1)}]
+    } -result {1 1}
+
+    test eject-1.2 {
+        Eject and load using volume
+    } -constraints {
+        userInteraction
+    } -setup {
+        set drive [find_cdrom]
+        set vol [twapi::get_mounted_volume_name $drive]
+    } -body {
+        pause "Please make sure the CD-ROM is closed."
+        twapi::eject_media $vol
+        set ejected [yesno "Did the CD-ROM get ejected?"]
+        if {$ejected} {
+            set load_error [catch {twapi::load_media cdrom} msg errdict]
+            if {$load_error} {
+                set loaded 0
+            } else {
+                set loaded [yesno "Did the CD-ROM get closed? If not please close it."]
+            }
+        } else {
+            set load_error 0
+            set loaded 0
+        }
+        # Not all cd-roms will support loading. Will return Windows error 1
+        list $ejected [expr {$loaded || ($load_error && [lindex [dict get $errdict -errorcode] 1] == 1)}]
+    } -result {1 1}
+
+    test eject-1.3 {
+        Eject and load using physicals disk
+    } -constraints {
+        userInteraction TBD
+    } -body {
+        Need to find a way to know which physical disk path to use
+    } -result ""
+
+    test eject-2.0 {
+        Eject USB pen drive
+    } -constraints {
+        userInteraction TBD
+    } -body {
+        Need to find a way to know which disk to use (check for removable?)
+    } -result ""
+
+    test eject-3.0 {
+        Try eject with open file
+    } -constraints {
+        userInteraction TBD
+    } -body {
+        Try and eject if a file is open - should fail
+    } -result ""
+
+    ################################################################
+
+    test lock_media-1.0 {
+        Lock/unlock cdrom
+    } -constraints {
+        userInteraction
+    } -setup {
+        # Make sure cdrom is not already locked. [eject] will unlock it
+        twapi::eject cdrom
+        set eject_setup [yesno "Did the CD-ROM eject? Please close it."]
+    } -body {
+        twapi::lock_media cdrom
+        set user1 [yesno "Please MANUALLY try to eject the CD-ROM. Were you able to?"]
+        twapi::unlock_media cdrom
+        set user2 [yesno "Please MANUALLY try to eject the CD-ROM. Were you able to?"]
+        pause "Please close the CDROM"
+        list $user1 $user2
+    } -result {0 1}
+
+    test lock_media-1.1 {
+        Lock/unlock cdrom (drive letter)
+    } -constraints {
+        userInteraction
+    } -setup {
+        # Make sure cdrom is not already locked. [eject] will unlock it
+        set drive [find_cdrom]
+        twapi::eject $drive
+        set eject_setup [yesno "Did the CD-ROM eject? Please close it."]
+    } -body {
+        twapi::lock_media $drive
+        set user1 [yesno "Please MANUALLY try to eject the CD-ROM. Were you able to?"]
+        twapi::unlock_media $drive
+        set user2 [yesno "Please MANUALLY try to eject the CD-ROM. Were you able to?"]
+        pause "Please close the CDROM"
+        list $user1 $user2
+    } -result {0 1}
+
+    test lock_media-1.2 {
+        Lock/unlock cdrom (volume)
+    } -constraints {
+        userInteraction
+    } -setup {
+        # Make sure cdrom is not already locked. [eject] will unlock it
+        set drive [find_cdrom]
+        set vol [twapi::get_mounted_volume_name $drive]
+        twapi::eject $vol
+        set eject_setup [yesno "Did the CD-ROM eject? Please close it."]
+    } -body {
+        twapi::lock_media $vol
+        set user1 [yesno "Please MANUALLY try to eject the CD-ROM. Were you able to?"]
+        twapi::unlock_media $vol
+        set user2 [yesno "Please MANUALLY try to eject the CD-ROM. Were you able to?"]
+        pause "Please close the CDROM"
+        list $user1 $user2
+    } -result {0 1}
+
+    test lock_media-1.3 {
+        Lock and unlock using physicals disk
+    } -constraints {
+        userInteraction TBD
+    } -body {
+        Need to find a way to know which physical disk path to use
+    } -result ""
+
+    ################################################################
+
+    test rescan_devices-1.0 {
+        Rescan devices
+    } -body {
+        twapi::rescan_devices
+    } -result ""
+
+    test rescan_devices-100.0 {
+        Rescan devices - how to verify rescan has happened
+    } -constraints {
+        TBD
+    } -body {
+        twapi::rescan_devices
+    } -result ""
+
+    ################################################################
+
+    test devinfoset-1.0 {
+        devinfoset - no args
+    } -body {
+        set h [twapi::devinfoset]
+        twapi::pointer? $h HDEVINFO
+    } -cleanup {
+        twapi::devinfoset_close $h
+    } -result 1
+
+    test devinfoset-2.0 {
+        devinfoset -presentonly 0
+    } -setup {
+        set h [twapi::devinfoset]
+        set total [llength [twapi::devinfoset_elements $h]]
+        twapi::devinfoset_close $h
+    } -body {
+        set h [twapi::devinfoset -presentonly 0]
+        list [twapi::pointer? $h HDEVINFO] [expr {$total == [llength [twapi::devinfoset_elements $h]]}]
+    } -cleanup {
+        twapi::devinfoset_close $h
+    } -result {1 1}
+
+    test devinfoset-2.1 {
+        devinfoset -presentonly 1
+    } -setup {
+        set h [twapi::devinfoset]
+        set total [llength [twapi::devinfoset_elements $h]]
+        twapi::devinfoset_close $h
+    } -body {
+        set h [twapi::devinfoset -presentonly 1]
+        set count [llength [twapi::devinfoset_elements $h]]
+        list [twapi::pointer? $h HDEVINFO] [expr {$total > $count && $count > 0}]
+    } -cleanup {
+        twapi::devinfoset_close $h
+    } -result {1 1}
+
+    test devinfoset-3.0 {
+        devinfoset -classtype setup
+    } -setup {
+        set h [twapi::devinfoset]
+        set total [llength [twapi::devinfoset_elements $h]]
+        twapi::devinfoset_close $h
+    } -body {
+        set h [twapi::devinfoset -classtype setup]
+        set count [llength [twapi::devinfoset_elements $h]]
+        list [twapi::pointer? $h HDEVINFO] [expr {$total == $count}]
+    } -cleanup {
+        twapi::devinfoset_close $h
+    } -result {1 1}
+
+    test devinfoset-3.1 {
+        devinfoset -classtype interface
+    } -setup {
+        set h [twapi::devinfoset]
+        set total [llength [twapi::devinfoset_elements $h]]
+        twapi::devinfoset_close $h
+    } -body {
+        set h [twapi::devinfoset -classtype interface]
+        set count [llength [twapi::devinfoset_elements $h]]
+        list [twapi::pointer? $h HDEVINFO] [expr {$total != $count}]
+    } -cleanup {
+        twapi::devinfoset_close $h
+    } -result {1 1}
+
+    test devinfoset-4.0 {
+        devinfoset -currentprofileonly 0
+    } -setup {
+        set h [twapi::devinfoset]
+        set total [llength [twapi::devinfoset_elements $h]]
+        twapi::devinfoset_close $h
+    } -body {
+        set h [twapi::devinfoset -currentprofileonly 0]
+        list [twapi::pointer? $h HDEVINFO] [expr {$total == [llength [twapi::devinfoset_elements $h]]}]
+    } -cleanup {
+        twapi::devinfoset_close $h
+    } -result {1 1}
+
+    test devinfoset-4.1 {
+        devinfoset -currentprofileonly 1
+    } -setup {
+        set h [twapi::devinfoset]
+        set total [llength [twapi::devinfoset_elements $h]]
+        twapi::devinfoset_close $h
+    } -body {
+        set h [twapi::devinfoset -currentprofileonly 1]
+        set count [llength [twapi::devinfoset_elements $h]]
+        list [twapi::pointer? $h HDEVINFO] [expr {$total >= $count && $count > 0}]
+    } -cleanup {
+        twapi::devinfoset_close $h
+    } -result {1 1}
+
+    test devinfoset-5.0 {
+        devinfoset -guid 
+    } -body {
+        set h [twapi::devinfoset -guid {{36FC9E60-C465-11CF-8056-444553540000}}]
+        set msg ""
+        foreach elem [twapi::devinfoset_elements $h] {
+            if {[twapi::device_element class_guid $elem] ne {{36FC9E60-C465-11CF-8056-444553540000}}} {
+                set msgs "GUID mismatch"
+            }
+        }
+        set msg
+    } -cleanup {
+        twapi::devinfoset_close $h
+    } -result ""
+
+    test devinfoset-6.0 {
+        devinfoset -guid 
+    } -body {
+        set h [twapi::devinfoset -pnpenumerator USB]
+        set msg ""
+        foreach id [twapi::devinfoset_instance_ids $h] {
+            if {![string match -nocase USB* $id]} {
+                set msgs "$id != USB"
+            }
+        }
+        set msg
+    } -cleanup {
+        twapi::devinfoset_close $h
+    } -result ""
+
+    ################################################################
+
+    test devinfoset_close-1.0 {
+        devinfoset_close
+    } -setup {
+        set h [twapi::devinfoset]
+    } -body {
+        list [catch {twapi::devinfoset_close $h}] [catch {twapi::devinfoset_close $h}]
+    } -result {0 1}
+
+    ################################################################
+
+    test devinfoset_element-1.0 {
+        devinfoset_element
+    } -setup {
+        set h [twapi::devinfoset -guid {{36FC9E60-C465-11CF-8056-444553540000}}]
+        set id [lindex [twapi::devinfoset_instance_ids $h] 0]
+    } -body {
+        set elem [twapi::devinfoset_element $h $id]
+        list [string equal {{36FC9E60-C465-11CF-8056-444553540000}} [twapi::device_element class_guid $elem]] [string is integer [twapi::device_element device_instance $elem]]
+    } -cleanup {
+        twapi::devinfoset_close $h
+    } -result {1 1}
+
+    ################################################################
+
+    test devinfoset_elements-1.0 {
+        devinfoset_elements
+    } -setup {
+        set h [twapi::devinfoset]
+        set msg ""
+    } -body {
+        set elems [twapi::devinfoset_elements $h]
+        foreach elem $elems {
+            # Just verifying element syntax
+            twapi::device_element class_guid $elem
+            twapi::device_element device_instance $elem
+        }
+        expr [llength $elems] > 0
+    } -cleanup {
+        twapi::devinfoset_close $h
+    } -result 1
+
+    ################################################################
+
+    test devinfoset_instance_ids-1.0 {
+        devinfoset_instance_ids
+    } -setup {
+        set h [twapi::devinfoset -guid {{36FC9E60-C465-11CF-8056-444553540000}}]
+    } -body {
+        set ids [twapi::devinfoset_instance_ids $h]
+        foreach id $ids {
+            # Just verify id validity
+            twapi::devinfoset_element $h $id
+        }
+        expr [llength $ids] > 0
+    } -cleanup {
+        twapi::devinfoset_close $h
+    } -result 1
+
+    ################################################################
+
+    test devinfoset_element_registry_property-1.0 {
+        devinfoset element registry
+    } -setup { 
+        set h [twapi::devinfoset]
+        set elems [twapi::devinfoset_elements $h]
+        foreach propname {
+            devicedesc hardwareid compatibleids service
+            class classguid driver configflags mfg friendlyname
+            location_information physical_device_object_name capabilities
+            ui_number upperfilters lowerfilters
+            bustypeguid legacybustype busnumber enumerator_name security
+            security_sds devtype exclusive characteristics address
+            ui_number_desc_format device_power_data
+            removal_policy removal_policy_hw_default removal_policy_override
+            install_state location_paths base_containerid
+        } {
+            set propnames($propname) 1
+        }
+        if {$::tcl_platform(osVersion) eq "5.1"} {
+            foreach propname {location_paths base_containerid} {
+                unset propnames($propname)
+            }
+        }
+    } -body {
+        foreach elem $elems {
+            foreach propname [array names propnames] {
+                twapi::trap {
+                    twapi::devinfoset_element_registry_property $h $elem $propname
+                    # We successfully retrieved at this one property of this name
+                    unset -nocomplain propnames($propname)
+                } onerror {TWAPI_WIN32 -2147024883} {
+                    # Registry property does not exist - ignore
+                } onerror {TWAPI_WIN32 -2146500085} {
+                    # Does not exist in device tree
+                }
+            }
+        }
+        unset -nocomplain propnames(exclusive); # Does not exist on my system
+        unset -nocomplain propnames(removal_policy_override); # Ditto
+        unset -nocomplain propnames(characteristics); # Ditto
+        array names propnames
+    } -cleanup {
+        twapi::devinfoset_close $h
+    } -result {}
+}
+
+
+::tcltest::cleanupTests
+
+namespace delete ::twapi::device::test
