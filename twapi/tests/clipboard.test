@@ -1,0 +1,327 @@
+#
+# Copyright (c) 2004-2012, Ashok P. Nadkarni
+# All rights reserved.
+#
+# See the file LICENSE for license
+
+# This file contains tests for commands from the clipboard.tcl
+
+package require tcltest
+eval tcltest::configure $argv
+
+source [file join [file dirname [info script]] testutil.tcl]
+load_twapi_package twapi_clipboard
+
+namespace eval twapi::clipboard::test {
+    namespace import ::tcltest::test
+    ::tcltest::testConstraint win2k [twapi::min_os_version 5]
+
+    proc copy2clip {args} {
+        puts [join $args \n]
+        pause "Copy the above [llength $args] lines to the clipboard."
+    }
+
+   ################################################################
+
+    test open_clipboard-1.0 {
+        Open the clipboard
+    } -constraints {
+        nt
+    } -body {
+        twapi::open_clipboard
+        twapi::close_clipboard
+    } -result ""
+
+    ################################################################
+
+    test close_clipboard-1.0 {
+        Close the clipboard
+    } -constraints {
+        nt
+    } -body {
+        twapi::open_clipboard
+        twapi::close_clipboard
+    } -result ""
+
+    ################################################################
+
+    test empty_clipboard-1.0 {
+        Empty the clipboard
+    } -constraints {
+        nt
+    } -body {
+        twapi::open_clipboard
+        twapi::empty_clipboard
+        twapi::close_clipboard
+    } -result ""
+
+    ################################################################
+
+    test read_clipboard-1.0 {
+        Read the clipboard as Unicode format
+    } -constraints {
+        userInteraction
+    } -body {
+        copy2clip line1 line2
+        twapi::open_clipboard
+        set clip_text [twapi::read_clipboard 13]; # Read unicode format
+        twapi::close_clipboard
+        # We should see clipboard results read as unicode characters
+        # "l i n e 1 \r \n l i n e 2 \0" possibly followed by junk.
+        twapi::_ucs16_binary_to_string $clip_text
+    } -result "line1\r\n\line2"
+
+    ################################################################
+
+    test read_clipboard-1.1 {
+        Read the clipboard as character format without opening clipboard
+    } -constraints {
+        userInteraction
+    } -body {
+        copy2clip line1 line2
+        set clip_text [twapi::read_clipboard 1]; # ANSI format
+        # We should see clipboard results read as characters
+        # "line1\r\nline2\0" followed potentially by junk
+        string range $clip_text 0 [string first \0 $clip_text]-1
+    } -result "line1\r\nline2"
+
+    ################################################################
+
+    test read_clipboard_text-1.0 {
+        Read the clipboard as text
+    } -constraints {
+        userInteraction
+    } -body {
+        copy2clip line1 line2
+        twapi::open_clipboard
+        set clip_text [twapi::read_clipboard_text]
+        twapi::close_clipboard
+        # We should see clipboard results read as characters without
+        # terminating null. Line end is a single \n char
+        set clip_text
+    } -result "line1\nline2"
+
+    ################################################################
+
+    test read_clipboard_text-1.1 {
+        Read the clipboard as raw text
+    } -constraints {
+        userInteraction
+    } -body {
+        copy2clip lineA lineB
+        twapi::open_clipboard
+        set clip_text [twapi::read_clipboard_text -raw 1]
+        twapi::close_clipboard
+        set clip_text
+    } -result "lineA\r\nlineB"; # Note \r
+
+
+    ################################################################
+
+    test clipboard_format_available-1.0 {
+        Check if a clipboard format is available (positive)
+    } -constraints {
+        userInteraction
+    } -body {
+        copy2clip "Some random text"
+        twapi::clipboard_format_available 1; # 1 -> Text format
+    } -result 1
+
+    test clipboard_format_available-1.1 {
+        Check if a clipboard format is available (negative)
+    } -constraints {
+        userInteraction
+    } -body {
+        copy2clip "Some random text"
+        twapi::clipboard_format_available 12345; # Some dummy format
+    } -result 0
+
+    ################################################################
+
+    test get_clipboard_formats-1.0 {
+        Get formats currently stored on the clipboard
+    } -constraints {
+        userInteraction
+    } -body {
+        copy2clip "Some random text"
+        twapi::open_clipboard
+        set clip_fmts [twapi::get_clipboard_formats]
+        twapi::close_clipboard
+        lsort -integer $clip_fmts
+    } -result {1 7 13 16}
+
+
+    ################################################################
+
+    test register_clipboard_format-1.0 {
+        Register a clipboard format
+    } -body {
+        string is integer [twapi::register_clipboard_format "TWAPI format"]
+    } -result 1
+
+    ################################################################
+
+    test get_registered_clipboard_format_name-1.0 {
+        Get the name of a registered clipboard format
+    } -body {
+        twapi::get_registered_clipboard_format_name [twapi::register_clipboard_format "HTML Format"]
+    } -result "HTML Format"
+
+    ################################################################
+
+    test get_registered_clipboard_format_name-1.1 {
+        Get the name of a standard clipboard format (should raise error)
+    } -body {
+        twapi::get_registered_clipboard_format_name 1
+    } -returnCodes {
+        error
+    } -result "The parameter is incorrect."
+
+    ################################################################
+
+    test write_clipboard-1.0 {
+        Write binary data to the clipboard
+    } -body {
+        twapi::open_clipboard
+        twapi::empty_clipboard
+        # Write data using our own format 23456 (arbitrary format number)
+        set data [binary format c* {0 1 2 3 4}]
+        twapi::write_clipboard 23456 $data
+        twapi::close_clipboard
+        # Now read it back
+        twapi::open_clipboard
+        set clip_data [twapi::read_clipboard 23456]
+        twapi::close_clipboard
+
+        string equal $data $clip_data
+    } -result 1
+
+    test write_clipboard-1.1 {
+        Write Unicode data to the clipboard without opening clipboard
+    } -body {
+        # We have to format the data with a trailing null char
+        set data [encoding convertto unicode "unicode text\0"]
+        twapi::write_clipboard 13 $data
+        # Now read it back
+        set clip_data [twapi::read_clipboard 13]
+
+        string equal $data $clip_data
+    } -result 1
+
+    test write_clipboard-2.0 {
+        Write multiple formats to the clipboard
+    } -body {
+        twapi::open_clipboard
+        twapi::write_clipboard_text "This is plain text"
+        twapi::write_clipboard_paths [list {C:/temp/foo bar} {C:\xxx\yyy.zzz}]
+        twapi::close_clipboard
+        list [twapi::read_clipboard_text] [twapi::read_clipboard_paths]
+    } -result [list "This is plain text" [list "C:/temp/foo bar" "C:/xxx/yyy.zzz"]]
+        
+    test write_clipboard-2.1 {
+        Write multiple formats to the clipboard - fail
+    } -body {
+        twapi::write_clipboard_paths [list {C:/temp/foo bar} {C:\xxx\yyy.zzz}]
+        twapi::write_clipboard_text "This is plain text"
+        # If clipboard not already open, the write* calls clear it first
+        # so there will be no file paths stored in clipboard
+        list [twapi::read_clipboard_text] [catch {twapi::read_clipboard_paths}]
+    } -result [list "This is plain text" 1]
+        
+    ################################################################
+
+    test write_clipboard_text-1.0 {
+        Write text to the clipboard
+    } -body {
+        set data "write_clipboard_text-1.0\nSecond line"
+        twapi::open_clipboard
+        twapi::empty_clipboard
+        twapi::write_clipboard_text $data
+        twapi::close_clipboard
+        # Now read it back
+        twapi::open_clipboard
+        set clip_data [twapi::read_clipboard_text -raw 1]
+        twapi::close_clipboard
+        set clip_data;          # Note expect additional \r in result
+    } -result "write_clipboard_text-1.0\r\nSecond line"
+
+    test write_clipboard_text-2.0 {
+        Write text to the clipboard -raw 0, without opening clipboard
+    } -body {
+        set data "write_clipboard_text-1.0\nSecond line"
+        twapi::write_clipboard_text $data -raw 0
+        # Now read it back
+        twapi::read_clipboard_text -raw 1
+        # Note expect additional \r in result
+    } -result "write_clipboard_text-1.0\r\nSecond line"
+
+    test write_clipboard_text-2.1 {
+        Write text to the clipboard -raw 1
+    } -body {
+        set data "write_clipboard_text-1.0\nSecond line"
+        twapi::open_clipboard
+        twapi::empty_clipboard
+        twapi::write_clipboard_text $data -raw 1
+        twapi::close_clipboard
+        # Now read it back
+        twapi::open_clipboard
+        set clip_data [twapi::read_clipboard_text -raw 1]
+        twapi::close_clipboard
+        set clip_data;          # Note no additional \r in result
+    } -result "write_clipboard_text-1.0\nSecond line"
+
+    ################################################################
+    
+    test write_clipboard_paths-1.0 {
+        Write paths to the clipboard, without opening clipboard
+    } -body {
+        set paths [list foo [file nativename [info nameofexecutable]]]
+        twapi::write_clipboard_paths $paths
+        twapi::read_clipboard_paths 
+    } -result [list [file normalize foo] [file normalize [info nameofexecutable]]]
+    
+
+    ################################################################
+
+    test start_clipboard_monitor-1.0 {
+        Monitor the clipboard
+    } -constraints {
+        userInteraction
+    } -body {
+        set ::clipboard_changed false
+        set ::cl_win [::twapi::start_clipboard_monitor "set ::clipboard_changed true"]
+        copy2clip "clipboard monitor"
+        update;                 # So callback runs
+        set ::clipboard_changed
+    } -cleanup {
+        ::twapi::stop_clipboard_monitor $::cl_win
+    } -result true
+
+    ################################################################
+
+    test stop_clipboard_monitor-1.0 {
+        Stop monitoring the clipboard
+    } -constraints {
+        userInteraction
+    } -setup {
+        set ::clipboard_changed false
+        set ::cl_win [::twapi::start_clipboard_monitor "set ::clipboard_changed true"]
+        copy2clip "clipboard monitor"
+        update;                 # So callback runs
+        if {! $::clipboard_changed} {
+            error "Failed to detect clipboard change"
+        }
+    } -body {
+        ::twapi::stop_clipboard_monitor $::cl_win
+        set ::clipboard_changed false
+        copy2clip "clipboard monitor"
+        update;                 # So callback runs if still registered
+        set ::clipboard_changed
+    } -result false
+
+    ################################################################
+
+    ::tcltest::cleanupTests
+}
+
+namespace delete ::twapi::clipboard::test

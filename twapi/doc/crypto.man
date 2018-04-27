@@ -1,0 +1,1482 @@
+[comment {-*- tcl -*- doctools manpage}]
+[manpage_begin "CryptoAPI" n ""]
+[copyright "2007-2016 Ashok P. Nadkarni"]
+[moddesc "Cryptographic and Certificate API"]
+[titledesc "Commands related to cryptographical operations"]
+[require twapi_crypto]
+[description]
+[para]
+
+This package provides procedures related to cryptographic services
+provided by the Windows platforms.
+
+[section "Overview"]
+
+This page describes the base commands related to the Win32 CryptoAPI
+(CAPI) which includes functions related to encryption, decryption, signatures
+and ancillary services.
+
+[para]
+Other functions provided by CAPI are documented
+in the [uri certs.html Certificates] and [uri sspi.html SSPI] pages.
+
+[para]
+This documentation expects the reader is familiar with the use of cryptography.
+An overview of the concepts in CAPI is provided but the API itself
+is fairly complex and
+a series of [uri http://www.magicsplat.com/blog/tags/cryptography/ "blog posts"]
+on the use of these commands may prove useful.
+The reader may also wish to
+refer to the
+[uri http://msdn.microsoft.com/en-us/library/windows/desktop/aa380255(v=vs.85).aspx "Windows SDK CryptoAPI documentation"].
+
+
+[section "Cryptographic Service Providers"]
+A Cryptographic Service Providers (CSP) on Windows is a software module that 
+implements a set of cryptographical functions such as encryption
+or key storage.
+There may be multiple such
+modules on a system, each implementing one of more cryptographic algorithms
+for one or more cryptographic functions. Applications implement cryptographic
+operations by calling a standard interface defined by Windows
+and implemented by the CSPs.
+
+[para]
+Some CSP's come with the Windows operating system while others are
+implemented by third parties. The feature set implemented by each CSP
+is different and can depend on factors such as
+the operating system version, and because of US export restrictions,
+the country. Based on the supported features, CSP's have an associated
+CSP type. For example, a CSP of type [const PROV_RSA_FULL] supports
+digital signatures and encryption using the RSA public key algorithm.
+On the other hand, a CSP of type [const PROV_DSS] uses the DSA algorithm and
+only supports hashes and signatures. When creating a
+[sectref "Cryptographic contexts"], an application needs to specify 
+a CSP type that supports the desired operations. The following types
+are recognized:
+[const prov_rsa_full],
+[const prov_rsa_sig],
+[const prov_dss],
+[const prov_fortezza],
+[const prov_ms_exchange],
+[const prov_ssl],
+[const prov_rsa_schannel],
+[const prov_dss_dh],
+[const prov_ec_ecdsa_sig],
+[const prov_ec_ecnra_sig],
+[const prov_ec_ecdsa_full],
+[const prov_ec_ecnra_full],
+[const prov_dh_schannel],
+[const prov_spyrus_lynks],
+[const prov_rng],
+[const prov_intel_sec],
+[const prov_replace_owf],
+[const prov_rsa_aes].
+Refer to the Windows SDK for details about the features provided by each.
+For most applications, the default [const prov_rsa_full] is sufficient.
+
+[para]
+Two standard providers shipped as part of Windows are
+[const "Microsoft Base Cryptographic Provider"]
+and the
+[const "Microsoft Strong Cryptographic Provider"].
+On most systems, the latter is the default when no specific CSP is selected
+and is sufficient in most cases unless some special functionality like
+hardware based cryptography is desired.
+
+[para]
+The commands
+[uri #csps [cmd csps]] and 
+[uri #csp_types [cmd csp_types]] 
+return the list of CSP's and CSP types on the system.
+
+[section "Keys and key containers"]
+The keys used for cryptographic operations are stored in 
+[emph "key containers"] within a CSP's control.
+The keys are not generally exposed directly to an application but rather
+the CSP carries out the operations using the keys on the application's behalf.
+
+[para]
+A CSP may be associated with multiple key containers, each identified by a name.
+The specific key container and the keys within that container that
+are used for an operation depends on the 
+[sectref "Cryptographic contexts"] is bound at the time the context is
+created via the [uri #crypt_acquire [cmd crypt_acquire]]
+command. This command also allows creation of new key containers within
+a CSP if they do not exist.
+
+[para]
+Depending on the options specified and the account under which they
+are created, key containers are created with restricted access. The
+exact access depends on the account group membership 
+(e.g. whether an adminitrator or not) and operating system version.
+Applications can set specific access rules by setting a 
+[uri security.html DACL] on the container using 
+[uri #crypt_set_security_descriptor [cmd crypt_set_security_descriptor]].
+
+[para]
+To delete key containers, use the
+[uri #crypt_key_container_delete [cmd crypt_key_container_delete]] command.
+
+[para]
+A key container may be created as a user key set or a computer key set.
+These are distinguished based on where they are stored and
+who has access to them.
+Refer to the [uri http://msdn.microsoft.com/en-us/library/windows/desktop/aa380255(v=vs.85).aspx "Windows SDK CryptoAPI documentation"]
+for details. It is possible to change the default access permissions
+for a key container. The
+[uri #crypt_get_security_descriptor [cmd crypt_get_security_descriptor]] and
+[uri #crypt_set_security_descriptor [cmd crypt_set_security_descriptor]]
+commands can be used retrieve and change the security descriptor for
+a key container.
+
+[para]
+Depending on the CSP chosen, key containers may be empty when created. 
+The command [uri #crypt_generate_key [cmd crypt_generate_key]]
+adds randomly generated keys to the container. 
+On the other hand,
+the command [uri #crypt_derive_key [cmd crypt_derive_key]] will
+add a key derived from a passphrase. In both cases,
+the algorithm with which the key will be
+used and the purpose (encryption, signing etc.) can be specified
+so the appropriate type of key is generated. The container may
+contain multiple keys and appropriate key must be chosen when
+cryptographic operations are invoked. A raw key of a specified
+number of bits derived from a passphrase can be generated using
+the [uri #pbkdf2 pbkdf2] command.
+[para]
+The properties for a key may be retrieved or set using the commands
+in the table below.
+Note that a key is always associated with a specific cryptographic
+algorithm.
+
+[list_begin opt]
+[opt_def [uri #capi_key_algid [cmd capi_key_algid]]]
+Numeric id for the associated algorithm.
+[opt_def [uri #capi_key_blocklen [cmd capi_key_blocklen]]]
+Block length for the encryption algorithm.
+[opt_def [uri #capi_key_certificate [cmd capi_key_certificate]]]
+Associated certificate.
+[opt_def [uri #capi_key_dss_p [cmd capi_key_dss_p]]]
+Modulus prime number P if the key is a DSS key.
+[opt_def [uri #capi_key_dss_q [cmd capi_key_dss_q]]]
+Modulus prime number Q if the key is a DSS key.
+[opt_def [uri #capi_key_dss_g [cmd capi_key_dss_g]]]
+Generator G if the key is a DSS key.
+[opt_def [uri #capi_key_effective_keylen [cmd capi_key_effective_keylen]]]
+Effective key length of the key.
+[opt_def [uri #capi_key_iv [cmd capi_key_iv]]]
+Initialization vector.
+[opt_def [uri #capi_key_keylen [cmd capi_key_keylen]]]
+Actual key length.
+[opt_def [uri #capi_key_mode [cmd capi_key_mode]]]
+Cipher mode, such as CBC, ECB etc.
+[opt_def [uri #capi_key_mode_bits [cmd capi_key_mode_bits]]]
+Number of feedback bits for OFB and CFB modes.
+[opt_def [uri #capi_key_padding [cmd capi_key_padding]]]
+Padding method.
+[opt_def [uri #capi_key_permissions [cmd capi_key_permissions]]]
+Operations that are permitted for the key.
+[opt_def [uri #capi_key_salt [cmd capi_key_salt]]]
+Salt value.
+[list_end]
+
+Keys received from other applications can be imported into a cryptographic
+context with the [uri #crypt_import_key [cmd crypt_import_key]] command.
+Conversely, a key that needs to be communicated to another application
+can be exported with the
+[uri #capi_key_export [cmd capi_key_export]] command. Public keys
+can be imported and exported in a portable format with
+[uri #crypt_public_key_import [cmd crypt_public_key_import]] and
+[uri #crypt_public_key_export [cmd crypt_public_key_export]]
+respectively.
+
+When importing and exporting keys, the keys are passed around as
+_key blobs_. The type and format of a key blob is specified by one of the values in the table below.
+
+[list_begin opt]
+[opt_def [const concealed]] The returned key blob is in the format
+returned by the TWAPI [uri base.html#conceal conceal] command.
+[opt_def [const opaque]] The returned key blob is in a
+format is a vendor-specific format that can only be used with the same CSP.
+[opt_def [const plaintext]] The returned key blob is a
+[const PLAINTEXTKEYBLOB] blob.
+[opt_def [const privatekey]]
+The returned key blob is a [const PRIVATEKEYBLOB] containing the public
+and private keys. If the [cmd -wrapper] option is specified, it must
+be the handle to a symmetric key in which case the blob is encrypted
+with that key.
+[opt_def [const publickey]]
+The returned key blob is a [const PUBLICKEYBLOB] containing the
+public key of a key pair.
+[opt_def [const rfc3217]] The returned key blob is in the format
+specified by RFC3217. Both [arg HKEY] and the wrapping key specified
+by the [cmd -wrapper] option must be symmetric keys.
+[opt_def [const simple]] The returned key blob is a
+[const SIMPLEBLOB] where the symmetric key specified by [arg HKEY]
+is wrapped by a key exchange key specified with the [cmd -wrapper]
+option.
+[list_end]
+
+The details of the format of each of the above, except [const concealed]
+which is TWAPI-specific,
+are described in the
+[uri https://msdn.microsoft.com/en-us/library/windows/desktop/aa375601(v=vs.85).aspx "SDK documentation"]. In addition to [cmd capi_key_export], key blobs
+can be explicitly constructed with the
+[uri #capi_keyblob_create [cmd capi_keyblob_create]] command.
+The commands [uri #capi_keyblob_plaintext [cmd capi_keyblob_plaintext]]
+and [uri #capi_keyblob_concealed [cmd capi_keyblob_concealed]] are shortcuts
+for making key blobs in [const plaintext] and [const concealed] formats.
+Individual
+fields of a key blob can be retrieved through the commands
+[uri #capi_keyblob_version [cmd capi_keyblob_version]],
+[uri #capi_keyblob_type [cmd capi_keyblob_type]],
+[uri #capi_keyblob_algid [cmd capi_keyblob_algid]] and
+[uri #capi_keyblob_blob [cmd capi_keyblob_blob]].
+
+[section "Cryptographic contexts"]
+In order to perform cryptographic operations, an application must
+choose a CSP, the algorithms to use and their parameters including keys.
+The command [uri #crypt_acquire [cmd crypt_acquire]]
+takes these are parameters and
+returns a handle to a [emph "cryptographic context"] that
+binds the desired combination together. This handle can then be used
+in further cryptographic operation.
+
+[para]
+Once a context is created, the various parameters associated with it can
+be retrieved.
+[list_begin opt]
+[opt_def [uri #crypt_algorithms [cmd crypt_algorithms]]]
+Returns the list of algorithms implemented in the context.
+[opt_def [uri #crypt_csp [cmd crypt_csp]]]
+Returns the name of the owning CSP.
+[opt_def [uri #crypt_csp_type [cmd crypt_csp_type]]]
+Returns the type of the CSP.
+[opt_def [uri #crypt_csp_version [cmd crypt_csp_version]]]
+Returns the version of the owning CSP.
+[opt_def [uri #crypt_keyx_keysize_increment [cmd crypt_keyx_keysize_increment]]]
+Returns the valid increments for the key exchange key sizes.
+[opt_def [uri #crypt_implementation_type [cmd crypt_implementation_type]]]
+Returns the implementation type (hardware, software etc.) of the context.
+[opt_def [uri #crypt_key_container_name [cmd crypt_key_container_name]]]
+Returns the name of key container currently associated with the context.
+[opt_def [uri #crypt_key_container_names [cmd crypt_key_container_names]]]
+Returns the names of the other key containers owned by the CSP.
+[opt_def [uri #crypt_key_specifiers [cmd crypt_key_specifiers]]]
+Returns the key specifiers supported by the context.
+[opt_def [uri #crypt_keypair [cmd crypt_keypair]]]
+Returns a handle to
+one of the key pairs in the container.
+[opt_def [uri #crypt_keyset_type [cmd crypt_keyset_type]]]
+Returns whether the key set in the container is per-user or per-machine.
+[opt_def [uri #crypt_session_key_size [cmd crypt_session_key_size]]]
+Returns the size of the session key.
+[opt_def [uri #crypt_sig_keysize_increment [cmd crypt_sig_keysize_increment]]]
+Returns the valid increments for the signature key sizes.
+[opt_def [uri #crypt_symmetric_key_size [cmd crypt_symmetric_key_size]]]
+Returns the size of the symmetric key.
+[list_end]
+
+When no longer needed, cryptographic contexts must be freed with
+the [uri #crypt_free [cmd crypt_free]] command.
+
+[section "Algorithm identifiers"]
+CAPI internally uses numeric identifiers for cryptographic algorithms.
+Algorithms can also be identified by ASN.1 OID's. In addition, TWAPI
+uses allows use of mnemonics to identify algorithms as per the table
+below. The command [uri #capi_algid [cmd capi_algid]] can be used to map
+any of the above forms to the numeric algorithm identifier. Most commands
+that need algorithm identifiers to be supplied will also accept any
+of the forms.
+
+[list_begin opt]
+[opt_def [const 3des]] Triple DES
+[opt_def [const 3des_112]] Triple DES with 112-bit effective key length
+[opt_def [const aes]] Advanced Encryption Standard (AES)
+[opt_def [const aes_128]] 128-bit AES
+[opt_def [const aes_192]] 192-bit AES
+[opt_def [const aes_256]] 256-bit AES
+[opt_def [const at_keyexchange]] Maps to the key
+exchange algorithm for the CSP in use
+[opt_def [const at_signature]] Maps to the signature algorithm for
+the CSP in use
+[opt_def [const des]] Data Encryption Standard (DES)
+[opt_def [const desx]] DES-X
+[opt_def [const dh_ephem]] Diffie-Hellman ephemeral key exchange
+[opt_def [const dh_sf]] Diffie-Hellman store and forward key exchange
+[opt_def [const dss_sign]] DSA public key signature
+[opt_def [const ecdh]] Elliptic curve Diffie-Hellman key exchange
+[opt_def [const ecdsa]] Elliptic curve digital signature
+[opt_def [const hash_replace_owf]] One way function hashing
+[opt_def [const hughes_md5]] Hughes MD5
+[opt_def [const hmac]] HMAC keyed hash
+[opt_def [const mac]] MAC keyed hash
+[opt_def [const md2]] MD2 hashing
+[opt_def [const md4]] MD4 hashing
+[opt_def [const md5]] MD5 hashing
+[opt_def [const no_sign]] No signature algorithm
+[opt_def [const rc2]] RC2 block encryption
+[opt_def [const rc4]] RC4 block encryption
+[opt_def [const rc5]] RC5 block encryption
+[opt_def [const rsa_keyx]] RSA public key exchange
+[opt_def [const rsa_sign]] RSA public key signature
+[opt_def [const sha]] SHA hashing
+[opt_def [const sha1]] SHA-1 hashing
+[opt_def [const sha_256]] 256-bit SHA-2
+[opt_def [const sha_384]] 384-bit SHA-2
+[opt_def [const sha_512]] 512-bit SHA-2
+[list_end]
+
+Note that not all algorithms are supported on all platforms.
+
+[section "ASN.1 object identifiers"]
+An ASN.1 object identifier (OID) is a dotted decimal string such
+as [const 1.2.3.4] that represents a ASN.1 class or attribute.
+Many CAPI command arguments use OID's to represent types and values
+such as algorithm identifiers. OID's can be passed in their dotted
+decimal form, or, for some commonly used ones, a mnemonic identifer.
+The list of mnemonic identifiers can be obtained through
+the [uri #oids [cmd oids]] command. Mapping to and from a specific mnemonic
+can be done through the [uri #oidname [cmd oidname]] and 
+[uri #oid [cmd oid]] commands.
+
+The utility commands [uri #asn1_encode_string [cmd asn1_encode_string]]
+and [uri #asn1_decode_string [cmd asn1_decode_string]] can be used to
+convert OID's to and from binary formats.
+
+[section "Hashes and MACs"]
+
+CAPI supports functionality related to generating cryptographic hashes
+and message authentication codes (MAC). The related TWAPI commands
+are shown below.
+
+[list_begin opt]
+[opt_def [uri #capi_hash_bytes [cmd capi_hash_bytes]]]
+Incrementally hashes a binary string.
+[opt_def [uri #capi_hash_create [cmd capi_hash_create]]]
+Creates a hash context.
+[opt_def [uri #capi_hash_dup [cmd capi_hash_dup]]]
+Duplicates a hash context.
+[opt_def [uri #capi_hash_free [cmd capi_hash_free]]]
+Frees a hash context.
+[opt_def [uri #capi_hash_session_key [cmd capi_hash_session_key]]]
+Incrementally hashes the secret session key.
+[opt_def [uri #capi_hash_string [cmd capi_hash_string]]]
+Incrementally hashes a string.
+[opt_def [uri #capi_hash_value [cmd capi_hash_value]]]
+Returns the hashed value.
+[opt_def [uri #hmac [cmd hmac]]]
+Calculates the HMAC hash using a specified PRF.
+[opt_def [uri #md5 [cmd md5]]]
+Calculates the MD5 hash.
+[opt_def [uri #sha1 [cmd sha1]]]
+Calculates the SHA1 hash.
+[opt_def [uri #sha256 [cmd sha256]]]
+Calculates the SHA-256 hash.
+[opt_def [uri #sha384 [cmd sha384]]]
+Calculates the SHA-384 hash.
+[opt_def [uri #sha512 [cmd sha512]]]
+Calculates the SHA-512 hash.
+[list_end]
+
+[section "Cryptographic operations"]
+
+The package implements the following commands related to encryption
+and signatures.
+
+[list_begin opt]
+[opt_def [uri #3des [cmd 3des]]]
+Encrypts, decrypts or generates an IV (3DES algorithm)
+[opt_def [uri #aes_128 [cmd aes_128]]]
+Encrypts, decrypts or generates an IV (AES 128-bits algorithm)
+[opt_def [uri #aes_192 [cmd aes_192]]]
+Encrypts, decrypts or generates an IV (AES 192-bits algorithm)
+[opt_def [uri #aes_256 [cmd aes_256]]]
+Encrypts, decrypts or generates an IV (AES 256-bits algorithm)
+[opt_def [uri #capi_encrypt_bytes [cmd capi_encrypt_bytes]]]
+Encrypts a binary string with optional hashing.
+[opt_def [uri #capi_encrypt_string [cmd capi_encrypt_string]]]
+Encrypts a string with optional hashing.
+[opt_def [uri #capi_decrypt_bytes [cmd capi_decrypt_bytes]]]
+Decrypts a binary string with optional hashing.
+[opt_def [uri #capi_decrypt_string [cmd capi_decrypt_string]]]
+Decrypts a string with optional hashing.
+[opt_def [uri #capi_hash_sign [cmd capi_hash_sign]]]
+Signs a hash using a private key.
+[opt_def [uri #capi_hash_verify [cmd capi_hash_verify]]]
+Verifies the signature of a hash.
+[opt_def [uri #des [cmd des]]]
+Encrypts, decrypts or generates an IV (DES algorithm)
+[list_end]
+
+
+[section "Data protection"]
+
+Windows provides facilities to encrypt and protect data based on the
+user credentials such that it can only be retrieved on the same
+system with the same credentials.
+The [uri #protect_data [cmd protect_data]] and
+[uri #unprotect_data [cmd unprotect_data]] commands provide
+access to this facility.
+
+The TWAPI base module also provides the 
+[cmd conceal]/[cmd reveal] commands to protect data within the current
+process. See the [uri base.html base] module reference for details.
+
+[section "Parsing cryptographic objects"]
+Cryptographic objects such as certificates, stores signed messages etc.
+may be of different formats and encodings. The command
+[uri #capi_parse [cmd capi_parse]] analyses and parses
+a binary string containing a serialized cryptographic object, possibly
+of an unknown type. The command [uri #capi_parse_file [cmd capi_parse_file]]
+is similar except it reads the serialized data directly from a file.
+
+[section Commands]
+
+[list_begin definitions]
+
+[call [cmd 3des] [const iv|encrypt|decrypt] [arg BYTES] [arg CONCEALEDKEY] [opt [arg options]]]
+Implements cryptographic operations using the 3DES algorithm.
+[nl]
+The [cmd iv] subcommand returns a randomly generated
+initialization vector suitable
+for 3DES. No additional arguments are allowed.
+[nl]
+For [cmd encrypt] and [cmd decrypt] commands,
+[arg BYTES] is the
+binary string to be encrypted or the ciphertext to be decrypted.
+[arg CONCEALEDKEY] is the 3DES key in
+[uri base.html#protectingdatainmemory concealed] form. The returned value is
+the encrypted ciphertext or decrypted plaintext respectively.
+
+The following options affect encryption or decryption operation.
+
+[list_begin opt]
+[opt_def [cmd -iv] [arg IV]]
+A binary string to be used as the initialization vector of the operation.
+[opt_def [cmd -mode] [arg MODE]]
+The cipher mode to be used for the operation. See
+[uri #capi_key_mode [cmd capi_key_mode]].
+[list_end]
+
+[call [cmd aes_128] [const iv|encrypt|decrypt] [arg BYTES] [arg CONCEALEDKEY] [opt [arg options]]]
+[call [cmd aes_192] [const iv|encrypt|decrypt] [arg BYTES] [arg CONCEALEDKEY] [opt [arg options]]]
+[call [cmd aes_256] [const iv|encrypt|decrypt] [arg BYTES] [arg CONCEALEDKEY] [opt [arg options]]]
+Implements cryptographic operations using the AES algorithm for
+128, 192 and 256 keys respectively.
+[nl]
+The [cmd iv] subcommand returns a randomly generated
+initialization vector of a suitable length
+for the algorithm. No additional arguments are allowed.
+[nl]
+For [cmd encrypt] and [cmd decrypt] commands,
+[arg BYTES] is the
+binary string to be encrypted or the ciphertext to be decrypted.
+[arg CONCEALEDKEY] is the key in
+[uri base.html#protectingdatainmemory concealed] form. The returned value is
+the encrypted ciphertext or decrypted plaintext respectively.
+
+The following options affect encryption or decryption operation.
+
+[list_begin opt]
+[opt_def [cmd -iv] [arg IV]]
+A binary string to be used as the initialization vector of the operation.
+[opt_def [cmd -mode] [arg MODE]]
+The cipher mode to be used for the operation. See
+[uri #capi_key_mode [cmd capi_key_mode]].
+[list_end]
+
+[call [cmd asn1_encode_string] [arg OID]]
+Returns the specified OID in ASN.1 binary encoded format.
+
+[call [cmd asn1_decode_string] [arg OID]]
+Returns the specified ASN.1 binary OID in string format.
+
+[call [cmd capi_algid] [arg ALGID]]
+Returns the numeric decimal algorithm identifier for the algorithm [arg ALGID]
+which may be in any of the forms described in
+[sectref "Algorithm identifiers"]. If [arg ALGID] is non-numeric,
+an error is raised if it cannot be mapped to a numeric id.
+
+[call [cmd capi_decrypt_bytes] [arg BINDATA] [arg HKEY] [opt "[cmd -hhash] [arg HHASH]"] [opt "[cmd -oaep] [arg BOOLEAN]"] [opt "[cmd -nopadcheck] [arg BOOL]"]]
+Decrypts the passed binary string [arg BINDATA] and returns the
+plaintext result.
+If the option [cmd -hhash] is specified [arg HHASH] should be the
+handle of a hash context. This will be updated with the decrypted
+data.
+The option [cmd -pad] can only be used with RSA. If unspecified
+or [const oaep], OAEP padding
+is assumed. A value of [const pkcs1] implies PKCS #1
+format padding. The value
+[const nopadcheck] specifies no check for padding should be done.
+
+[call [cmd capi_decrypt_string] [arg BINDATA] [arg HKEY] [opt "[cmd -hhash] [arg HHASH]"] [opt "[cmd -oaep] [arg BOOLEAN]"] [opt "[cmd -nopadcheck] [arg BOOL]"]]
+Decrypts the passed binary string [arg BINDATA] converts it from
+UTF-8 encoding and returns the plaintext result. Note that it is assumed
+that the original encrypted text was UTF-8 encoded.
+If the option [cmd -hhash] is specified [arg HHASH] should be the
+handle of a hash context. This will be updated with the decrypted
+data.
+The option [cmd -pad] can only be used with RSA. If unspecified
+or [const oaep], OAEP padding
+is assumed. A value of [const pkcs1] implies PKCS #1
+format padding. The value
+[const nopadcheck] specifies no check for padding should be done.
+
+[call [cmd capi_encrypt_bytes] [arg BINDATA] [arg HKEY] [opt "[cmd -hhash] [arg HHASH]"] [opt "[cmd -pad] [arg PADTYPE]"]]
+Encrypts the passed binary string [arg BINDATA] and returns the result.
+[arg HKEY] should be the handle of the key to be used for the operation.
+If the option [cmd -hhash] is specified [arg HHASH] should be the
+handle of a hash context. This will be updated with [arg BINDATA].
+The option [cmd -pad] can only be used with RSA. If unspecified
+or [const oaep], OAEP padding
+is used. The only other valid value is [const pkcs1] for PKCS #1
+format padding.
+[nl]
+Note that the maximum length of data that can be encrypted depends
+on the algorithm and parameters like key size.
+
+[call [cmd capi_encrypt_string] [arg STRING] [arg HKEY] [opt "[cmd -hhash] [arg HHASH]"] [opt "[cmd -pad] [arg PADTYPE]"]]
+Encrypts the passed string [arg STRING] after encoding it in UTF-8
+and returns the result.
+If the option [cmd -hhash] is specified [arg HHASH] should be the
+handle of a hash context. This will be updated with [arg BINDATA].
+The option [cmd -pad] can only be used with RSA. If unspecified
+or [const oaep], OAEP padding
+is used. The only other valid value is [const pkcs1] for PKCS #1
+format padding.
+
+[call [cmd capi_hash_bytes] [arg HHASH] [arg BINVALUE]]
+Updates the hash context specified by [arg HHASH] with the result
+of hashing the binary string [arg BINVALUE].
+
+[call [cmd capi_hash_create] [arg HCRYPT] [arg ALGID] [opt [arg HKEY]]]
+Creates a hash context and returns a handle to it. [arg HCRYPT]
+is a handle to a cryptographic context as returned by
+[uri #crypt_acquire [cmd crypt_acquire]]. [arg ALGID] is an algorithm
+identifier as described in [sectref "Algorithm identifiers"]. If the
+algorithm is a key-based hash, [arg HKEY] must be a handle to the
+key. Otherwise it should be unspecified or [const NULL].
+[nl]
+The returned hash context should be freed when no longer needed by
+calling [uri #capi_hash_free [cmd capi_hash_free]].
+
+[call [cmd capi_hash_dup] [arg HHASH]]
+Creates a new hash context that is the duplicate of an existing hash
+context and returns a handle to it.
+[nl]
+The returned hash context should be freed when no longer needed by
+calling [uri #capi_hash_free [cmd capi_hash_free]].
+
+[call [cmd capi_hash_free] [arg HHASH]]
+Frees a hash context previously created through [cmd capi_hash_create]
+or [cmd capi_hash_dup].
+
+[call [cmd capi_hash_session_key] [arg HHASH] [arg HKEY]]
+Updates the hash context specified by [arg HHASH] with result of hashing
+the session key referenced by the handle [arg HKEY].
+
+[call [cmd capi_hash_sign] [arg HHASH] [arg KEYSPEC] [opt [arg options]]]
+Returns a binary string that is the signature generated by signing
+the specified hash context. [arg HHASH] specifies the hash context.
+[arg KEYSPEC] should be either [const keyexchange] or [const signature]
+indicating which of the private keys in the cryptographic context
+associated with [arg HHASH] should be used to sign the hash.
+[nl]
+Once this command is called, commands
+that add data to the hash, such as
+[uri #capi_hash_string [cmd capi_hash_string]]
+cannot be invoked.
+[nl]
+The following options may be specified with the command.
+[list_begin opt]
+[opt_def [cmd -nohashoid] [arg BOOLEAN]]
+If [const true], the hash object OID is not placed in the RSA public key
+encryption. If [const false] (default), the hash OID in the default
+signature is as specified in the definition of DigestInfo in PKCS #1.
+[list_end]
+Note the supported options depend on both the CSP and the hashing
+algorithm.
+
+[call [cmd capi_hash_string] [arg HHASH] [arg STRING] [opt [arg ENC]]]
+Converts [arg STRING] into a binary string using the specified
+encoding [arg ENC] (defaults to [const utf-8]) and
+updates the hash context specified by [arg HHASH] with the result.
+
+[call [cmd capi_hash_value] [arg HHASH]]
+Returns the hashed value from the specified hash context as a binary
+string. The [arg HHASH] handle should not be used with [cmd capi_hash_bytes]
+or [cmd capi_hash_string] once this command is called.
+
+[call [cmd capi_hash_verify] [arg HHASH] [arg SIG] [arg HKEY] [opt [arg options]]]
+Verifies that the signature computed on a hash context [arg HHASH] with
+public key [arg HKEY] is the same as [arg SIG]. Returns 1 if the signature
+matches, else 0.
+[nl]
+Once this command is called, commands
+that add data to the hash, such as
+[uri #capi_hash_string [cmd capi_hash_string]]
+cannot be invoked.
+[nl]
+The following options may be specified with the command.
+[list_begin opt]
+[opt_def [cmd -nohashoid] [arg BOOLEAN]]
+If [const true], the hash object OID is not expected to the
+present and is not checked. 
+If [const false] (default), the hash OID in the default
+signature is expected to be
+as specified in the definition of DigestInfo in PKCS #1.
+[list_end]
+Note the supported options depend on both the CSP and the hashing
+algorithm.
+
+[call [cmd capi_key_algid] [arg HKEY] [opt [arg ALGID]] [opt [arg options]]]
+If no optional arguments are specified,
+returns the numeric id for the algorithm associated with the key.
+Otherwise sets it to [arg ALGID]. Additional options such as key size
+may be specified. See [cmd crypt_generate_key] for valid options.
+
+[call [cmd capi_key_blocklen] [arg HKEY]]
+If [arg HKEY] references a session key, returns the block length of the
+key cipher with a value of 0 indicating it is a stream cipher. If [arg HKEY]
+references a public/private key pair, the return value is the encryption
+granularity. In both cases, the return value is in number of bits.
+
+[call [cmd capi_key_certificate] [arg HKEY]]
+Returns the certificate associated with the key, if any, as
+a DER-encoded binary string.
+
+[call [cmd capi_key_dss_p] [arg HKEY]]
+Returns the modulus prime number P if [arg HKEY] is a DSS key handle.
+The return value is a binary string in little-endian form.
+
+[call [cmd capi_key_dss_q] [arg HKEY]]
+Returns the modulus prime number Q if [arg HKEY] is a handle to a DSS key.
+The return value is a binary string in little-endian form.
+
+[call [cmd capi_key_dss_g] [arg HKEY]]
+Returns the generator G if [arg HKEY] is a DSS key handle.
+The return value is a binary string in little-endian form.
+
+[call [cmd capi_key_effective_keylen] [arg HKEY]]
+Returns the effective key length of the key.
+
+[call [cmd capi_key_export] [arg HKEY] [arg BLOBTYPE] [opt "[cmd -wrapper] [arg HWRAPPER]"]]
+
+Exports the key referenced by the specified handle [arg HKEY].
+The return value  is a list containing 5 elements.
+The first element is a numeric value corresponding to the blob type. 
+The second is the version number of the blob format. The third is a
+reserved value that should be ignored by applications. The
+fourth is the numeric [uri #algorithmidentifiers "algorithm identifier"].
+Finally, the fifth value is a binary key blob
+whose format and structure depends on [arg BLOBTYPE].
+See [sectref "Keys and key containers"] for more on key blobs.
+
+
+[call [cmd capi_key_free] [arg HKEY]]
+Frees a handle to a cryptographic key.
+
+[call [cmd capi_key_iv] [arg HKEY] [opt [arg IV]]]
+If [arg IV] is not specified, the command
+returns the current initialization vector as a binary string. Otherwise
+[arg IV] is set as the initialization vector.
+[arg HKEY] must be a handle to a block cipher session key.
+
+[call [cmd capi_key_keylen] [arg HKEY]]
+Returns the actual key length in bits. This includes any parity and zeroed bits.
+[arg HKEY] can be a handle to any type of key.
+
+[call [cmd capi_key_mode] [arg HKEY] [opt [arg MODE]]]
+If [arg MODE] is not specified,
+returns the cipher mode used with the key. The return value is one
+of [const cbc], [const ecb], [const ofb], [const cfb] and [const cts].
+If [arg MODE] is specified it must be one of the aforementioned values
+and the cipher mode is set accordingly. Note that not all CSP's support
+all modes for a given algorithm. In particular, the Microsoft provided CSP's
+only support the `ecb`, `cbc` and `cfb` modes.
+[arg HKEY] must be a handle to a block cipher session key.
+
+[call [cmd capi_key_mode_bits] [arg HKEY] [opt [arg MODEBITS]]]
+If [arg MODEBITS] is not specified,
+returns the number of feedback bits for OFB and CFB modes.
+Otherwise sets the corresponding parameter to [arg MODEBITS].
+[arg HKEY] must be a handle to a block cipher session key.
+
+[call [cmd capi_key_padding] [arg HKEY] [opt [arg PADMODE]]]
+If [arg PADMODE] is not specified,
+returns the padding method used with the key. Otherwise sets
+the padding method to [arg PADMODE].
+[arg HKEY] must be a handle to a block cipher session key.
+[nl]
+The possible values for [arg PADMODE] are
+[list_begin opt]
+[opt_def [const pkcs5]]
+Padding as specified by PKCS #5
+[opt_def [const random]]
+Random bytes of padding.
+[opt_def [const zeroes]]
+Padding filled with zeroes.
+[list_end]
+
+Note that not all CSP's and algoritms every padding method.
+As of Windows 10, Microsoft CSP's only support PKCS5.
+
+[call [cmd capi_key_permissions] [arg HKEY] [opt [arg PERMS]]]
+If [arg PERMS] is not specified,
+returns the list of operations that are permitted for the key.
+
+The permissions are returned and specified as a
+list containing zero or more elements from the following:
+
+[list_begin opt]
+[opt_def [const archive]] Key can be exported only on the initial key creation.
+[opt_def [const decrypt]] Usable for decryption.
+[opt_def [const encrypt]] Usable for encryption.
+[opt_def [const export]] Key can be exported.
+[opt_def [const export_key]] Key can be used to encrypt other exported keys.
+[opt_def [const import_key]] Key can be used decrypt keys being imported.
+[opt_def [const mac]] Key can be used with message authentication codes.
+[opt_def [const read]] Allow key values to be read.
+[opt_def [const write]] Allow key values to be written.
+[list_end]
+
+[call [cmd capi_key_salt] [arg HKEY] [opt [arg SALT]]]
+If [arg SALT] is not specified,
+returns a binary string of bytes that are used as the salt value in little
+endian form. If [arg SALT] is specified, it is used as the salt value
+for the key.
+
+[call [cmd capi_keyblob_algid] [arg KEYBLOB]]
+Returns the algorithm associated with a key blob.
+
+[call [cmd capi_keyblob_blob] [arg KEYBLOB]]
+Returns the raw key structures within a key blob.
+
+[call [cmd capi_keyblob_concealed] [arg ALGID] [arg CONCEALEDKEY]]
+
+Constructs and returns a key blob that is of type [const concealed].
+See [sectref "Keys and key containers"] about more on key blobs.
+
+[call [cmd capi_keyblob_create] [arg VER] [arg ALGID] [arg BLOBTYPE] [arg KEYBYTES]]
+
+Constructs and returns a key blob that can be passed to a command such
+as [uri #crypt_import_key [cmd crypt_import_key]]. See
+[sectref "Keys and key containers"] about more on key blobs.
+
+[call [cmd capi_keyblob_plaintext] [arg ALGID] [arg PLAINTEXTKEY]]
+
+Constructs and returns a key blob that is of type [const plaintext].
+See [sectref "Keys and key containers"] about more on key blobs.
+
+[call [cmd capi_keyblob_type] [arg KEYBLOB]]
+Returns the type of a key blob.
+
+[call [cmd capi_keyblob_version] [arg KEYBLOB]]
+Returns the version of a key blob.
+
+[call [cmd capi_parse] [arg BINSTRING] [opt [arg options]]]
+Parses a serialized form of a cryptographic object, stored as a
+binary string [arg BINSTRING], which may be in
+one of several different formats and encodings and whose type may
+be a certificate, certificate store, a CTL or a CRL.
+[nl]
+The following options may be specified with the command.
+[list_begin opt]
+[opt_def [cmd -contenttype] [arg CONTENTTYPE]]
+Specifies the type of cryptographic object expected. See below for the
+possible values. If unspecified, or if [arg CONTENTTYPE] is [const any],
+the command will attempt to guess the type of content. Otherwise, it
+will raise an error if the content is not of the specified type.
+[opt_def [const -format] [arg FORMAT]]
+Specifies the format of the data. [arg FORMAT] must be on of the values
+[const binary], [const base64], [const asn1hex] or [const any]. If the
+option is unspecified or [const any],
+the command will attempt to guess the format. Otherwise, it
+will raise an error if the data format is not that specified.
+[opt_def [const -typesonly]]
+If specified as [const true], the actual content is not included in the
+returned dictionary. Only the information related to format and
+object type is returned. Defaults to [const false].
+[list_end]
+
+The return value is a dictionary with at least the
+keys shown in the table below.
+
+[list_begin opt]
+[opt_def [const formattype]]
+The associated value is one of [const binary], [const base64] or
+[const asn1hex] depending on the format of the data.
+[opt_def [const contenttype]]
+The associated value indicates the type of data that was parsed. The
+parsed data is stored in additional keys in the returned dictionary that
+depend on this type. This is discussed below.
+[list_end]
+
+The possible values in the [const contenttype] key of the
+returned dictionary and the semantics of each are shown in the table below.
+Note that the return dictionary also contains additional keys
+that depend on this value.
+
+[list_begin opt]
+[opt_def [const cert]]
+The data is a certificate. The returned dictionary has two additional keys
+[const store] and [const certificate] that contain handles to a certificate
+store and certificate context. These must be released
+after use with [uri certs.html#cert_store_release [cmd cert_store_release]] and
+[uri certs.html#cert_release [cmd cert_release]] respectively.
+[opt_def [const certpair]]
+TBD.
+[opt_def [const crl]]
+The data is a CRL. The returned dictionary has two additional keys
+[const store] and [const crl] that contain handles to a certificate
+store and CRL context. These must be released
+after use with [uri certs.html#cert_store_release [cmd cert_store_release]] and
+[uri #crl_release [cmd crl_release]] respectively.
+[opt_def [const ctl]]
+The data is a CTL. The returned dictionary has two additional keys
+[const store] and [const ctl] that contain handles to a certificate
+store and CTL context. These must be released
+after use with [uri certs.html#cert_store_release [cmd cert_store_release]] and
+[uri #ctl_release [cmd ctl_release]] respectively.
+[opt_def [const pfx]]
+The data is a PFX (PKCS#12) packet. No additional keys are returned in
+the dictionary. The application can use the
+[uri certs.html#cert_temporary_store [cmd cert_temporary_store]] command
+to import the PFX packet.
+[opt_def [const pkcs10]]
+The data is a PKCS#10 message.
+[opt_def [const pkcs7signed]]
+The data is a PKCS#7 signed message.
+The returned dictionary has two additional keys
+[const store] and [const message] that contain handles to a certificate
+store and signed message. These must be released
+after use with [uri certs.html#cert_store_release [cmd cert_store_release]] and
+[uri #capi_msg_release [cmd capi_msg_release]] respectively.
+[opt_def [const pkcs7signedembed]]
+The data is an embedded PKCS#7 signed message.
+The returned dictionary has two additional keys
+[const store] and [const message] that contain handles to a certificate
+store and signed message. These must be released
+after use with [uri certs.html#cert_store_release [cmd cert_store_release]] and
+[uri #capi_msg_release [cmd capi_msg_release]] respectively.
+[opt_def [const pkcs7unsigned]]
+The data is a PKCS#7 unsigned message.
+The returned dictionary has an additional key, [const message]
+that contains a handle to a signed message.
+This must be released with
+[uri #capi_msg_release [cmd capi_msg_release]].
+[opt_def [const rsapublickey]]
+The data is RSA public key encoded as defined by the
+ASN.1 RSAPublicKey definition in RFC3279. The returned dictionary has
+the key [const rsapublickey] containing the key in an internal form.
+[opt_def [const serializedcert]]
+The data is a serialized certificate.
+The returned dictionary has two additional keys
+[const store] and [const certificate] that contain handles to a certificate
+store and certificate context. These must be released
+after use with [uri certs.html#cert_store_release [cmd cert_store_release]] and
+[uri certs.html#cert_release [cmd cert_release]] respectively.
+[opt_def [const serializedcrl]]
+The data is a serialized CRL. The returned dictionary has two additional keys
+[const store] and [const crl] that contain handles to a certificate
+store and CRL context. These must be released
+after use with [uri certs.html#cert_store_release [cmd cert_store_release]] and
+[uri #crl_release [cmd crl_release]] respectively.
+[opt_def [const serializedctl]]
+The data is a serialized CTL. The returned dictionary has two additional keys
+[const store] and [const ctl] that contain handles to a certificate
+store and CTL context. These must be released
+after use with [uri certs.html#cert_store_release [cmd cert_store_release]] and
+[uri #ctl_release [cmd ctl_release]] respectively.
+[opt_def [const serializedstore]]
+The data is a serialized certificate store.
+The returned dictionary has an additional key
+[const store] that contains a handle to a certificate
+store created from the data. This must be released
+after use with [uri certs.html#cert_store_release [cmd cert_store_release]].
+[opt_def [const subjectpublickeyinfo]]
+The data is as per
+ASN.1 SubjectPublicKeyInfo definition in RFC3279. The returned dictionary has
+the key [const subjectpublickeyinfo] containing the key in an internal form
+that can be passed to [uri #crypt_public_key_import [cmd crypt_public_key_import]].
+
+[list_end]
+
+[call [cmd capi_parse_file] [arg FILEPATH] [opt [arg options]]]
+Parses a cryptographic object
+in the same manner as [uri #capi_parse [cmd capi_parse]]
+except that the object is read from the file [arg FILEPATH].
+See the documentation of [uri #capi_parse [cmd capi_parse]]
+for details.
+
+[call [cmd crypt_acquire] [opt [arg options]]]
+Returns a handle to a cryptographic context for a key container
+in a [uri #cryptographicserviceproviders CSP]. 
+[nl]
+The handle must be freed
+when no longer required by calling 
+[uri #crypt_free [cmd crypt_free]].
+
+[list_begin opt]
+[opt_def [cmd -create] [arg BOOLEAN]] If specified as [const true],
+the key container is created if it does not exist. If [const false] (default)
+an error is generated if the key container does not exist.
+[opt_def [cmd -csp] [arg CSP]] Specifies the name of the CSP to be used.
+If unspecified, the default Microsoft CSP for the system is used.
+[opt_def [cmd -csptype] [arg CSPTYPE]] Indicates the type of
+CSP. Defaults to [const prov_rsa_full]. 
+See [sectref "Cryptographic Service Providers"] for all possible types.
+[opt_def [cmd -keycontainer] [arg KEYCONTAINER]]
+Specifies the name of the key container. If unspecified or
+an empty string, the default container
+for the CSP is used.
+[opt_def [cmd -keysettype] [arg KEYSETTYPE]] [arg KEYSETTYPE] must be
+[const user] (default) or [const machine]. Normally the key container
+is stored in the user's profile. If [arg KEYSETTYPE] is [const machine],
+the key container is treated as a computer container. This is
+needed when an application must access the keys from a process where
+the user profile is not loaded.
+[opt_def [cmd -silent] [arg BOOLEAN]] Normally, the CSP may prompt the user
+for any information that may be required to create the context. If this
+option is specified as [const true], the user is never prompted. Instead
+the command will raise an error if a user prompt was required.
+[opt_def [cmd -verifycontext] [arg BOOLEAN]] If specified as [const true],
+the context is intended for use for operations that are using
+ephemeral keys or which do not
+need access to private keys. Such operations include hashing, encrypting
+and signature verification. Operations involving decryption and signing
+require private keys and should set this option to [const false].
+The default for this option depends on whether a named key container
+is specified or not.
+If [cmd -keycontainer] is not specified
+or is specified as an empty string denoting the default key container,
+this option defaults to [const true]. Otherwise it defaults to [const false].
+Note that some CSP's (including Microsoft's) raise an error if the
+option is set to true for named containers.
+See the [uri http://support.microsoft.com/kb/238187 "Microsoft knowledgebase"] article for more details.
+
+[list_end]
+
+[emph "Compatibility note"] In versions prior to 4.2, the key container was
+passed as the first argument, and not via the [cmd -keycontainer] option.
+Although that will still work, it is deprecated and may raise an error
+in future releases.
+
+[call [cmd crypt_algorithms] [arg HCRYPT]]
+Returns the list of algorithms implemented in the specified cryptographic
+context. Each element of the list is a dictionary with keys shown in the
+table below.
+[list_begin opt]
+[opt_def [cmd algid]] The numeric algorithm identifier.
+[opt_def [cmd defkeylen]] The default length of a key.
+[opt_def [cmd description]] Description of the algorithm.
+[opt_def [cmd minkeylen]] Minimum length of a key.
+[opt_def [cmd maxkeylen]] Maximum length of a key.
+[opt_def [cmd name]] Name of the algorithm.
+[opt_def [cmd protocols]] Cryptographic protocols supported by the algorithm.
+This is a list containing zero or more elements from amongst
+[const ipsec], [const pct1], [const signing], [const ssl2], [const ssl3]
+and [const tls1].
+[list_end]
+Applications must ignore any additional keys in the table.
+
+[call [cmd crypt_csp] [arg HCRYPT]]
+Returns the name of the CSP owning the cryptographic context [arg HCRYPT].
+
+[call [cmd crypt_csp_type] [arg HCRYPT]]
+Returns the type of the CSP owning the cryptographic context [arg HCRYPT].
+
+[call [cmd crypt_derive_key] [arg HCRYPT] [arg ALGID] [arg PASSPHRASE] [opt [arg options]]]
+
+Generates a cryptographic key based on a pass phrase and returns a handle
+to it which must be freed using [uri #capi_key_free [cmd capi_key_free]].
+[arg HCRYPT] is the handle to the cryptographic context in which
+the key is to be created and [arg ALGID] should specify the
+[uri #algorithmidentifiers "algorithm identifier"] for the cryptographic
+algorithm with which the key will be used. [arg PASSPHRASE] is the
+pass phrase from which the key will be derived. This must be
+in the form returned by one of the TWAPI password or credential
+input commands so as to avoid inadvertent leakage. If the pass phrase
+comes from some other source, you can use the
+[uri base.html#conceal [cmd conceal]] command to convert to this form
+although this is not recommended as the original plain text pass phrase
+is then exposed at the script level and may show up on any error stacks etc.
+
+The command supports the following options:
+
+[list_begin opt]
+[opt_def [cmd -exportable] [arg BOOLEAN]]
+If [const true] (default), the key can be exported later with
+[uri #capi_key_export [cmd capi_key_export]]. If [const false], the
+derived key can be used in cryptographic operations with the containing
+CSP but cannot be exported.
+[opt_def [cmd -iterations] [arg NUMITERS]]
+Number of iterations to execute if [cmd -method] option is specified
+as [const pbkdf2]. Ignored otherwise. Default is [const 100000].
+[opt_def [cmd -method] [arg KEYDERIVATIONMETHOD]]
+Specifies the method by which the key is derived from the pass phrase.
+See description below for details.
+[opt_def [cmd -prf] [arg ALGID]]
+Specifies the pseudo-random function (PRF) to use in the key derivation.
+If specified, [arg ALGID] must be [const sha1] (default) or [const sha_256].
+Ignored if [cmd -method] is not [const pbkdf2].
+[opt_def [cmd -salt] [arg BINSTRING]]
+Specifies a binary string to use as the salt value
+if [cmd -method] option is specified
+as [const pbkdf2]. Ignored otherwise.
+[opt_def [cmd -size] [arg KEYSIZE]]
+Specifies the desired number of bits in the derived key. If unspecified or
+[const 0], the derived key size is based on the specified algorithm.
+[list_end]
+
+The method by which the passphrase is transformed into a key is controlled
+by the [cmd -method] option. If the value
+[arg KEYDERIVATIONMETHOD] is [const pbkdf2] (default), the
+command [uri #pbkdf2 [cmd pbkdf2]] is used for generating the key
+passing it the values specified for [cmd -iterations], [cmd -salt]
+and [cmd -size].
+[nl]
+
+Otherwise, the key is derived based on the method described in the
+Windows SDK documentation. [arg KEYDERIVATIONMETHOD] must be a
+[uri #algorithmidentifiers "algorithm identifier"] that refers to a
+hash. The key is derived by hashing the UTF-8 encoding of the
+passphrase and passing the hash value to the [cmd CryptDeriveKey]
+Win32 API.  Refer to the SDK documentation for details regarding how
+the function derives keys.
+
+[call [cmd crypt_public_key_export] [arg HCRYPT] [arg KEYSPEC] [opt [cmd "-encoding native|pem|der"]]]
+Returns the public key of a key pair in a specified encoding. [arg KEYSPEC]
+must be either [const keyexchange] or [const signature] and specifies
+a key pair in the cryptographic context indicated by [arg HCRYPT].
+The [cmd -encoding] option controls the encoding of the returned public
+key as shown in the following table.
+[list_begin opt]
+[opt_def [const der]] DER encoded ASN.1 type [const SubjectPublicKeyInfo].
+[opt_def [const pem]] PEM encoded ASN.1 type [const SubjectPublicKeyInfo].
+[opt_def [const native]] Internal Tcl string format.
+[list_end]
+
+[call [cmd crypt_public_key_import] [arg HCRYPT] [arg KEY] [opt [cmd "-encoding native|pem|der"]]]
+Imports the public key [arg KEY] into the cryptographic context specified
+by [arg HCRYPT] and returns a handle to it. The option [cmd -encoding]
+specifies the encoding of [arg KEY] as described for the
+[uri #crypt_public_key_export [cmd crypt_public_key_export]] command.
+If the option is not specified or is specified as an empty string, the
+command will attempt to guess the encoding.
+
+[call [cmd crypt_keyx_keysize_increment] [arg HCRYPT]]
+Returns the number of bits by which the key exchange key size can
+be incremented. The [uri #crypt_algorithms [cmd crypt_algorithms]]
+command returns the minimum and maximum key lengths for each algorithm
+in the context. This command returns the valid increments between
+the minimum and maximum values for the key exchange algorithm for
+the context.
+
+[call [cmd crypt_free] [arg HCRYPT]]
+Frees a cryptographic context returned by
+[uri #crypt_acquire [cmd crypt_acquire]].
+
+[call [cmd crypt_generate_key] [arg HCRYPT] [arg ALGORITHM] [opt [arg options]]]
+Generates a new key or public/private key pair in the cryptographic
+context [arg HCRYPT] and returns a handle to it. 
+[arg ALGORITHM] specifies the algorithm with which the keys will be used
+and must be one of 
+[const keyexchange], [const signature], or the OID of an algorithm
+in either dotted decimal or mnemonic form.
+
+[nl]
+The following options may be specified with the command:
+[list_begin opt]
+[opt_def [cmd -archivable] [arg BOOLEAN]]
+If [const true], the key can be exported until its handle is freed
+after which it is no longer exportable.
+[opt_def [cmd -exportable] [arg BOOLEAN]]
+If [const true], the key is exportable. If [const false], session keys
+and private keys are not exportable.
+[opt_def [cmd -pregen] [arg BOOLEAN]] If [const true], specifies
+an initial Diffie-Hellman or DSS key generation. Not applicable
+for other algorithms.
+[opt_def [cmd -userprotected] [arg BOOLEAN]] If [const true],
+the user is notified by some CSP-specific means for some uses of the key.
+[opt_def [cmd -size] [arg KEYSIZE]] Specifies the key size to override
+the default key size. Since default key sizes are platform dependent,
+Microsoft recommends key size be explicitly set.
+[list_end]
+
+The returned handle must be freed by calling
+[uri #crypt_key_free [cmd crypt_key_free]].
+
+[call [cmd crypt_get_security_descriptor] [arg HCRYPT]]
+Returns the [uri security.html#securitydescriptors "security descriptor"]
+associated with a CSP key container whose handle is [arg HCRYPT].
+
+[call [cmd crypt_implementation_type] [arg HCRYPT]]
+Returns the implementation type of the context. This is one of the
+values [const software], [const hardware], [const removable], [const mixed]
+(combination of the others), or [const unknown]. Applications should be
+aware other values might be returned as well.
+
+[call [cmd crypt_import_key] [arg HCRYPT] [arg KEYBLOB] [opt [arg options]]]
+Imports a key blob into the cryptographic context specified by [arg HCRYPT]
+and returns a handle to the imported key. The returned key handle must
+be freed by passing it to [uri #capi_key_free [cmd capi_key_free]]
+when no longer required. [arg KEYBLOB] is in one of
+the formats returned by [uri #capi_key_export [cmd capi_key_export]].
+[nl]
+The command accepts the following options
+
+[list_begin opt]
+[opt_def [cmd -exportable] [arg BOOLEAN]]
+If [arg true] (default), the imported key can be exported at a later
+time. If [const false] the key cannot be exported although it can
+be used for cryptographic operations.
+[opt_def [cmd -ipsechmac] [arg BOOLEAN]] TBD
+[opt_def [cmd -oaep] [arg BOOLEAN]] TBD
+[opt_def [cmd -userprotected] [arg BOOLEAN]]
+If specified as [const true], the user is notified in a CSP-dependent
+manner whenever the key is used. Default is [const false].
+[opt_def [cmd -wrapper] [arg HWRAPPER]]
+If [arg KEYBLOB] was in an encrypted form, this option must be specified
+and [arg HWRAPPER] should be the handle to the key that can decrypt
+the key blob.
+[list_end]
+
+[call [cmd crypt_key_container_delete] [arg KEYCONTAINER] [opt [arg options]]]
+Deletes the key container identified by the specified options.
+[arg KEYCONTAINER] specifies the name of the key container to be deleted in
+the CSP. If the empty string, the default container is deleted. Since
+this can impact other applications, the [cmd -force] option must be
+specified when deleting the default container.
+[list_begin opt]
+[opt_def [cmd -csp] [arg CSP]] Specifies the name of the CSP for
+the key container.
+If unspecified, the default Microsoft CSP for the system is used.
+[opt_def [cmd -csptype] [arg CSPTYPE]] Indicates the type of
+CSP. Defaults to [const prov_rsa_full]. 
+See [sectref "Cryptographic Service Providers"] for all possible types.
+[opt_def [cmd -force]] Must be specified when deleting the default container.
+[opt_def [cmd -keysettype] [arg KEYSETTYPE]] [arg KEYSETTYPE] must be
+[const user] (default) or [const machine]. Normally the key container
+is stored in the user's profile. If [arg KEYSETTYPE] is [const machine],
+the key container is treated as a computer container.
+[list_end]
+
+The command will raise an error if the container does not exist.
+
+[call [cmd crypt_key_container_name] [arg HCRYPT]]
+Returns the name of key container for the cryptographic context.
+
+[call [cmd crypt_key_container_names] [arg HCRYPT]]
+Returns the names of the other key containers owned by the CSP other
+than the one current one.
+
+[call [cmd crypt_key_free] [arg HCRYPTKEY]]
+Deprecated. Use [uri #capi_key_free [cmd capi_key_free]] instead.
+
+[call [cmd crypt_key_specifiers] [arg HCRYPT]]
+Returns the key specifiers supported by the CSP. This is a list from
+zero or more values from [const keyexchange] and [const signature]. Note
+that this does not mean the corresponding key pair currently
+exists in the context, only that the CSP supports that functionality.
+Applications should be aware other values might be returned in the list
+as well and should be ignored for future compatibility.
+
+[call [cmd crypt_keypair] [arg HCRYPT] [arg keytype]]
+Returns a handle to one of two public/private key pairs in a key container.
+[arg HCRYPT] is a handle to the CSP key container. [arg keytype] must be either
+[const keyexchange] or [const signature] and specifies which
+of the two key pairs in the container.
+
+[nl]
+The returned handle must be freed by calling
+[uri #crypt_key_free [cmd crypt_key_free]].
+
+[call [cmd crypt_keyset_type] [arg HCRYPT]]
+Returns [const user] or [const machine] depending on
+whether the key set in the container is per-user or per-machine.
+
+[call [cmd crypt_set_security_descriptor] [arg HCRYPT] [opt [arg SECD]]]
+Sets the [uri security.html#securitydescriptors "security descriptor"]
+associated with a CSP key container whose handle is [arg HCRYPT].
+
+[call [cmd crypt_session_key_size] [arg HCRYPT]]
+Returns the size of the session key in the container.
+
+[call [cmd crypt_sig_keysize_increment] [arg HCRYPT]]
+Returns the number of bits by which the signature key size can
+be incremented. The [uri #crypt_algorithms [cmd crypt_algorithms]]
+command returns the minimum and maximum key lengths for each algorithm
+in the context. This command returns the valid increments between
+the minimum and maximum values for the signature algorithm for
+the context.
+
+[call [cmd crypt_symmetric_key_size] [arg HCRYPT]]
+Returns the size of the symmetric key in the container.
+
+[call [cmd csp_types]]
+Returns a list of pairs, each representing a CSP type on the system.
+The first element of each pair is a CSP type 
+and the second is the name of the CSP.
+
+[call [cmd csps]]
+Returns a list of pairs, each representing a CSP on the system.
+The first element of each pair is a CSP type 
+and the second is the name of the CSP.
+
+
+[call [cmd des] [const iv|encrypt|decrypt] [arg BYTES] [arg CONCEALEDKEY] [opt [arg options]]]
+Implements cryptographic operations using the DES algorithm.
+[nl]
+The [cmd iv] subcommand returns a randomly generated
+initialization vector suitable
+for DES. No additional arguments are allowed.
+[nl]
+For [cmd encrypt] and [cmd decrypt] commands,
+[arg BYTES] is the
+binary string to be encrypted or the ciphertext to be decrypted.
+[arg CONCEALEDKEY] is the DES key in
+[uri base.html#protectingdatainmemory concealed] form. The returned value is
+the encrypted ciphertext or decrypted plaintext respectively.
+
+The following options affect encryption or decryption operation.
+
+[list_begin opt]
+[opt_def [cmd -iv] [arg IV]]
+A binary string to be used as the initialization vector of the operation.
+[opt_def [cmd -mode] [arg MODE]]
+The cipher mode to be used for the operation. See
+[uri #capi_key_mode [cmd capi_key_mode]].
+[list_end]
+
+
+
+
+
+
+
+
+
+
+
+
+[call [cmd hmac] [arg DATA] [arg KEY] [opt [arg PRF]] [opt [arg CHARSET]]]
+Computes the HMAC hash for the specified data [arg DATA].
+The key [arg KEY] used in computation of the HMAC is and must be
+in a [uri base.html#protectingdatainmemory concealed] form.
+[nl]
+The pseudo random function used in calculating the MAC is
+specified by [arg PRF] which defaults to SHA-1. If explicitly specified,
+[arg PRF] should be an appropriate
+[uri #algorithmidentifiers "algorithm identifier"]
+such as [const sha_256].
+[nl]
+[arg DATA] must be a binary string unless [arg CHARSET] is specified
+in which case it is converted to a binary string using the specified
+character set encoding [arg CHARSET] using the Tcl [cmd encoding] command
+and the HMAC is calculated on the result.
+[nl]
+The command returns the computed HMAC as a binary string.
+
+[call [cmd md5] [arg DATA] [opt [arg CHARSET]]]
+Returns the MD5 digest for [arg DATA]. If [arg CHARSET] is not
+specified or is an empty string, [arg DATA] is assumed to be
+a binary string. Otherwise, it is converted to a binary string
+using the specified encoding [arg CHARSET] and the digest is calculated
+on the result.
+
+[call [cmd pbkdf2] [arg PASSPHRASE] [arg KEYSIZE] [arg PRF] [arg SALT] [arg NITERATIONS]]
+Generates a key of the specified number of bits [arg KEYSIZE]
+based on the specified pass phrase [arg PASSPHRASE] using the
+PBKDF2 algorithm defined by RFC 2898.
+[arg PASSPHRASE] must be in [uri base.html#protectingdatainmemory concealed]
+form as returned by a password input command like
+[uri base.html#read_credentials [cmd read_credentials]].
+[nl]
+[arg PRF] specifies the pseudo random function and must be
+either [const sha1] or [const sha_256].
+[arg SALT] and [arg NITERATIONS] are used as defined
+in the RFC.
+[nl]
+The returned key is in a [uri base.html#protectingdatainmemory concealed] form.
+
+
+[call [cmd pkcs7_decrypt] [arg PKCS7MSG] [arg STORES] [opt [arg options]]]
+Decrypts the PKCS7 message [arg PKCS7MSG] and returns the corresponding
+plaintext. [arg STORES] should be a list of one or more certificate store
+handles one of which must contain a certificate matching one of
+the recipients listed in the message and which has an associated private key.
+[nl]
+The following options may be specified.
+[list_begin opt]
+[opt_def [cmd -certvar] [arg CERTVAR]]
+If specified and [arg CERTVAR] is not the empty string, a handle
+to a certificate context for the certificate used for decryption is stored
+in the variable [arg CERTVAR] in the caller's context. This must
+be released later by calling [uri certs.html#cert_release [cmd cert_release]].
+[opt_def [cmd -encoding] [arg ENCODING]]
+If unspecified or the empty string,
+the command attempts to determine the encoding itself.
+Otherwise, [arg ENCODING] must be [const der] or [const pem]
+depending on whether [arg PKCS7MSG] uses DER- or PEM-encoding.
+For performance reasons, the encoding should be explicitly specified
+when possible.
+[opt_def [cmd -silent] [arg BOOL]]
+If the decryption key is user protected, the user is notified when
+the key is used. If [arg -silent] is [const true],
+the user is not notified for such keys and the command returns an
+error instead. Default is [const false].
+[list_end]
+
+[call [cmd pkcs7_encrypt] [arg BINDATA] [arg RECIPIENTS] [arg ENCALGOID] [opt [arg options]]]
+Encrypts the binary string [arg BINDATA] using a generated session
+key for the symmetric encryption algorithm specified by the OID
+[arg ENCALGOID]. The session key is itself encrypted using each
+of the public keys corresponding to the list of certificate contexts
+[arg RECIPIENTS]. The return value is formatted as an enveloped PKCS7
+message as defined in [uri https://tools.ietf.org/html/rfc2315 "RFC 2315"].
+[nl]
+The following option may be specified with the command.
+[list_begin opt]
+[opt_def [cmd -encoding] [arg ENCODING]]
+Specifies the encoding in which the encoded message is returned.
+[arg ENCODING] may be [const der] or [const pem] (default)
+for DER- and PEM-encoding respectively.
+[list_end]
+                    
+[call [cmd pkcs7_sign] [arg BINDATA] [arg HCERT] [arg HASHALGOID] [opt [arg options]]]
+Computes the hash of the binary string [arg BINDATA], signs it
+with the private key corresponding
+to the certificate [arg HCERT] and returns it as a PKCS7 formatted
+message as defined in [uri https://tools.ietf.org/html/rfc2315 "RFC 2315"].
+[arg HASHALGOID] is the OID of the hashing algorithm to be used.
+The following options may be specified.
+[list_begin opt]
+[opt_def [cmd -detached] [arg BOOL]]
+If [const false] (default), the content [arg BINDATA] is included in
+the message. If [const true], the PKCS7 packet is constructed as a
+detached packet without the content.
+[opt_def [cmd -encoding] [arg ENCODING]]
+Specifies the encoding in which the encoded message is returned.
+[arg ENCODING] may be [const der] or [const pem] (default)
+for DER- and PEM-encoding respectively.
+[opt_def [cmd -includecerts] [const none|leaf|all]]
+If unspecified or [const all], the signing certificate [arg HCERT]
+along with all certificates in its certificate chain are included
+in the PKCS7 message. If [const leaf], only the signing certificate is
+included and if [const none], no certificates are included in the message.
+[opt_def [cmd -silent] [arg BOOL]]
+If the signing key is user protected, the user is notified when
+the key is used for signing. If [arg -silent] is [const true],
+the user is not notified for such keys and the command returns an
+error instead. Default is [const false].
+[opt_def [cmd -usersignerkeyid] [arg BOOL]]
+By default or if [const false],
+the certificate issuer and serial number is used to identify
+the signer. If this option is [const true], the key identifier is
+used for this purpose instead.
+[list_end]
+
+[call [cmd pkcs7_verify] [arg PKCS7MSG] [opt [arg options]]]
+Verifies the signature of a PKCS7 signed message [arg PKCS7MSG]. If
+the signature verifies successfully, the command returns [const ok].
+Otherwise, it returns one of the error status values specified
+for [uri certs.html#cert_verify [cmd cert_verify]].
+[nl]
+In addition to verifying the signature on the message, the command
+also verifies that the signing certificate is valid by calling
+[uri certs.html#cert_verify [cmd cert_verify]]. All options for
+that command are therefore accepted by [cmd pkcs7_verify] as well.
+[nl]
+In addition to those options, the command accepts the following options:
+[list_begin opt]
+[opt_def [cmd -certvar] [arg CERTVAR]]
+If specified and [arg CERTVAR] is not the empty string, a handle
+to a certificate context for the signing certificate is stored
+in the variable [arg CERTVAR] in the caller's context. This must
+be released later by calling [uri certs.html#cert_release [cmd cert_release]].
+[opt_def [cmd -contentvar] [arg CONTENTVAR]]
+If specified and [arg CONTENTVAR] is not the empty string, the
+content of the message is stored in the variable [arg CONTENTVAR] in
+the caller's context.
+[opt_def [cmd -encoding] [arg ENCODING]]
+If unspecified or the empty string,
+the command attempts to determine the encoding itself.
+Otherwise, [arg ENCODING] must be [const der] or [const pem]
+depending on whether [arg PKCS7MSG] uses DER- or PEM-encoding.
+For performance reasons, the encoding should be explicitly specified
+when possible.
+
+[list_end]
+
+[call [cmd protect_data] [arg BINDATA] [opt [arg options]]]
+Encrypts and signs the binary data [arg BINDATA] so that it can only
+be recovered by a process running under the same user credentials
+on the same system through [uri #unprotect_data [cmd unprotect_data]].
+[nl]
+The following options may be specified:
+[list_begin opt]
+[opt_def [cmd -audit] [arg BOOLEAN]]
+If [const true], an audit event is generated. Default is [const false].
+[opt_def [cmd -description] [arg DESCRIPTION]]
+A descriptive string that is stored with the encrypted data.
+[opt_def [cmd -hwnd] [arg HWND]]
+The handle to the parent window if a dialog is to be shown to the user.
+[opt_def [cmd -localmachine] [arg BOOLEAN]]
+If [const false] (default), only the same user can decrypt the data.
+If [const true], any user on the same machine can do the decryption.
+[opt_def [cmd -noui] [arg BOOLEAN]]
+If [const true], the operation fails if any user dialog is
+required to be shown. Default is [const false].
+[opt_def [cmd -prompt] [arg PROMPTSTRING]]
+If specified, the user is shown a dialog with the specified
+[arg PROMPTSTRING] to set the security level of the encrypted
+data. The user will also be prompted at the time the data
+is decrypted.
+[list_end]
+
+[call [cmd sha1] [arg DATA] [opt [arg CHARSET]]]
+[call [cmd sha256] [arg DATA] [opt [arg CHARSET]]]
+[call [cmd sha384] [arg DATA] [opt [arg CHARSET]]]
+[call [cmd sha512] [arg DATA] [opt [arg CHARSET]]]
+Return the SHA-1, SHA-256, SHA-384 or SHA-512 digests respectively
+for [arg DATA]. If [arg CHARSET] is not
+specified or is an empty string, [arg DATA] is assumed to be
+a binary string. Otherwise, it is converted to a binary string
+using the specified encoding [arg CHARSET] and the digest is calculated
+on the result.
+
+[call [cmd unprotect_data] [arg BINDATA] [opt [arg options]]]
+Decrypts and verifies the signature on the binary data [arg BINDATA]
+which must have been encrypted with the
+[uri #protect_data [cmd protect_data]] command.
+The command will raise an error if [arg BINDATA] was encrypted
+under different user or machine credentials.
+The command returns the decrypted data.
+[nl]
+The following options may be specified:
+[list_begin opt]
+[opt_def [cmd -withdescription] [arg BOOLEAN]]
+By default the command returns just the decrypted data.
+If specified as [const true], the command returns a list of two
+elements - the decrypted data and a
+descriptive string that is stored with the encrypted data.
+[opt_def [cmd -hwnd] [arg HWND]]
+The handle to the parent window if a dialog is to be shown to the user.
+[opt_def [cmd -noui] [arg BOOLEAN]]
+If [const true], the operation fails if any user dialog is
+required to be shown. Default is [const false].
+[opt_def [cmd -prompt] [arg PROMPTSTRING]]
+If specified, the user is shown a dialog with the specified
+[arg PROMPTSTRING].
+[list_end]
+
+
+
+[list_end]
+
+[keywords key hashing signatures MAC MIC cryptography encryption decryption CAPI CryptoAPI PKCS]
+
+[manpage_end]

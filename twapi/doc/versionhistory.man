@@ -1,0 +1,1186 @@
+[comment {-*- tcl -*- doctools manpage}]
+[manpage_begin "Version History" "n" ""]
+[copyright "2003-2015 Ashok P. Nadkarni"]
+[moddesc "TWAPI Version History"]
+[titledesc "Tcl Windows API extension version history"]
+[description]
+[para]
+Summarizes the list of changes for each version of TWAPI.
+
+[section "Version 4.3.0"]
+[list_begin bullet]
+
+[bullet]
+Added [uri com.html#x-instanceof [cmd -instanceof]] method and better support
+for UDT's.
+
+[bullet]
+Added [uri com.html#x-iterate [cmd -cleanup]] option to
+the [cmd "comobj -iterate"] method.
+
+[bullet]
+Added
+[uri crypto.html#des [cmd des]],
+[uri crypto.html#3des [cmd 3des]],
+[uri crypto.html#aes_128 [cmd aes_128]],
+[uri crypto.html#aes_192 [cmd aes_192]],
+[uri crypto.html#aes_256 [cmd aes_256]].
+
+[bullet]
+Added
+[uri crypto.html#capi_keyblob_create [cmd capi_keyblob_create]],
+[uri crypto.html#capi_keyblob_concealed [cmd capi_keyblob_concealed]],
+[uri crypto.html#capi_keyblob_plaintext [cmd capi_keyblob_plaintext]],
+[uri crypto.html#capi_keyblob_version [cmd capi_keyblob_version]],
+[uri crypto.html#capi_keyblob_algid [cmd capi_keyblob_algid]],
+[uri crypto.html#capi_keyblob_type [cmd capi_keyblob_type]],
+[uri crypto.html#capi_keyblob_blob [cmd capi_keyblob_blob]].
+
+[bullet]
+[emph "Incompatible change"]
+The experimental Windows Installer module [cmd twapi_msi] has
+been replaced by a [uri msi.html "new version"] based on the generic COM
+interfaces.
+
+[list_end]
+
+[section "Version 4.2.12"]
+
+[list_begin bullet]
+
+[bullet]
+Added [uri clipboard.html#read_clipboard_paths [cmd read_clipboard_paths]] and
+[uri clipboard.html#write_clipboard_paths [cmd write_clipboard_paths]]
+and modified clipboard commands to not require an explicit open.
+
+[bullet]
+Added command
+[uri storage.html#drive_ready [cmd drive_ready]].
+
+[bullet]
+Added [uri certs.html#cert_verify [cmd cert_verify]],
+[uri certs.html#cert_chain_build [cmd cert_chain_build]],
+[uri certs.html#cert_chain_simple_chain [cmd cert_chain_simple_chain]],
+[uri certs.html#cert_chain_trust_errors [cmd cert_chain_trust_errors]],
+[uri certs.html#cert_chain_trust_info [cmd cert_chain_trust_info]]
+for certificate validation.
+
+[bullet]
+Addec PKCS7 handling commands
+[uri crypto.html#pkcs7_decrypt [cmd pkcs7_decrypt]],
+[uri crypto.html#pkcs7_encrypt [cmd pkcs7_encrypt]],
+[uri crypto.html#pkcs7_sign [cmd pkcs7_sign]],
+[uri crypto.html#pkcs7_verify [cmd pkcs7_verify]].
+
+[bullet]
+Added [uri certs.html#cert_fetch [cmd cert_fetch]].
+
+[bullet]
+Added [uri certs.html#cert_store_export_pem [cmd cert_store_export_pem]].
+
+[bullet]
+Added [uri comserver.html#com_query_client_blanket [cmd com_query_client_blanket]].
+
+[bullet]
+Added [cmd -requestclientcert] option to
+[uri tls.html#tls_socket [cmd tls_socket]].
+
+[bullet]
+Added [const bstr] type to [uri base.html#tclcast [cmd tclcast]].
+
+[bullet]
+Added
+[uri crypto.html#capi_hash_sign [cmd capi_hash_sign]],
+[uri crypto.html#capi_hash_verify [cmd capi_hash_verify]],
+[uri crypto.html#capi_encrypt_bytes [cmd capi_encrypt_bytes]],
+[uri crypto.html#capi_encrypt_string [cmd capi_encrypt_string]],
+[uri crypto.html#capi_decrypt_bytes [cmd capi_decrypt_bytes]],
+[uri crypto.html#capi_decrypt_string [cmd capi_decrypt_string]].
+
+[bullet]
+Added key import/export commands
+[uri crypto.html#crypt_public_key_export [cmd crypt_public_key_export]],
+[uri crypto.html#crypt_public_key_import [cmd crypt_public_key_import]],
+[uri crypto.html#crypt_import_key [cmd crypt_import_key]],
+[uri crypto.html#capi_key_export [cmd capi_key_export]].
+
+[bullet]
+Added crypto key related commands
+[uri crypto.html#pbkdf2 [cmd pbkdf2]],
+[uri crypto.html#crypt_derive_key [cmd crypt_derive_key]],
+[uri crypto.html#capi_key_algid [cmd capi_key_algid]],
+[uri crypto.html#capi_key_blocklen [cmd capi_key_blocklen]],
+[uri crypto.html#capi_key_certificate [cmd capi_key_certificate]],
+[uri crypto.html#capi_key_dss_p [cmd capi_key_dss_p]],
+[uri crypto.html#capi_key_dss_q [cmd capi_key_dss_q]],
+[uri crypto.html#capi_key_dss_g [cmd capi_key_dss_g]],
+[uri crypto.html#capi_key_effective_keylen [cmd capi_key_effective_keylen]],
+[uri crypto.html#capi_key_iv [cmd capi_key_iv]],
+[uri crypto.html#capi_key_keylen [cmd capi_key_keylen]],
+[uri crypto.html#capi_key_mode [cmd capi_key_mode]],
+[uri crypto.html#capi_key_mode_bits [cmd capi_key_mode_bits]],
+[uri crypto.html#capi_key_padding [cmd capi_key_padding]],
+[uri crypto.html#capi_key_permissions [cmd capi_key_permissions]],
+[uri crypto.html#capi_key_salt [cmd capi_key_salt]].
+
+[bullet]
+Added [uri crypto.html#capi_parse [cmd capi_parse]] and
+[uri crypto.html#capi_parse_file [cmd capi_parse_file]] to
+parse serialized cryptographic objects.
+
+[bullet]
+Added [uri crypto.html#capi_algid [cmd capi_algid]],
+[uri crypto.html#asn1_encode_string [cmd asn1_encode_string]] and
+[uri crypto.html#asn1_decode_string [cmd asn1_decode_string]].
+
+[bullet]
+Added hashing and message digest commands
+[uri crypto.html#capi_hash_create [cmd capi_hash_create]],
+[uri crypto.html#capi_hash_free [cmd capi_hash_free]],
+[uri crypto.html#capi_hash_value [cmd capi_hash_value]],
+[uri crypto.html#capi_hash_bytes [cmd capi_hash_bytes]],
+[uri crypto.html#capi_hash_string [cmd capi_hash_string]],
+[uri crypto.html#capi_hash_dup [cmd capi_hash_dup]],
+[uri crypto.html#capi_hash_session_key [cmd capi_hash_session_key]],
+[uri crypto.html#md5 [cmd md5]],
+[uri crypto.html#sha1 [cmd sha1]],
+[uri crypto.html#sha256 [cmd sha256]],
+[uri crypto.html#sha384 [cmd sha384]],
+[uri crypto.html#sha512 [cmd sha512]],
+[uri crypto.html#hmac [cmd hmac]].
+
+[bullet]
+Added [uri crypto.html#crypt_algorithms [cmd crypt_algorithms]],
+[uri crypto.html#crypt_key_specifiers [cmd crypt_key_specifiers]],
+[uri crypto.html#crypt_keyx_keysize_increment [cmd crypt_keyx_keysize_increment]],
+[uri crypto.html#crypt_sig_keysize_increment [cmd crypt_sig_keysize_increment]],
+[uri crypto.html#crypt_csp_version [cmd crypt_csp_version]],
+[uri crypto.html#crypt_implementation_type [cmd crypt_implementation_type]].
+
+[bullet]
+Added a new optional [arg DEFAULTED] parameter to
+[uri security.html#set_security_descriptor_dacl [cmd set_security_descriptor_dacl]],
+[uri security.html#set_security_descriptor_sacl [cmd set_security_descriptor_sacl]],
+[uri security.html#set_security_descriptor_owner [cmd set_security_descriptor_owner]],
+[uri security.html#set_security_descriptor_group [cmd set_security_descriptor_group]].
+
+[bullet]
+Added new option [cmd -groupsids] to
+[uri security.html#get_token_info [cmd get_token_info]],
+[uri process.html#get_process_info [cmd get_process_info]] and
+[uri process.html#get_thread_info [cmd get_thread_info]].
+
+[bullet]
+Updated Windows service related calls to recognize new service types.
+
+[bullet]
+[emph "Deprecated"]
+Commands [cmd crypt_csps] and [cmd crypt_csptypes] are deprecated.
+Use [uri crypto.html#csps [cmd csps]] and
+[uri crypto.html#csp_types [cmd csp_types]] instead.
+
+[bullet]
+[emph "Deprecated"]
+Command [cmd crypt_key_free] is deprecated. Use
+[uri crypto.html#capi_key_free [cmd capi_key_free]] instead.
+
+[bullet]
+[emph "Incompatible change"]
+Commands in the [uri crypto.html CryptoAPI] and [uri certs.html Certificates]
+modules that have an [cmd -encoding] option have changed behaviour. For
+input, if [cmd -encoding] is not specified, they now try to determine
+the input encoding instead of defaulting to DER. For output, the default
+encoding has changed from DER to PEM.
+
+[bullet]
+[emph "Incompatible change"]
+The [uri crypto.html#crypt_acquire [cmd crypt_acquire]] command behaviour
+has changed. It now takes the key container name as the [cmd -keycontainer]
+option instead of the first argument. The [cmd -create] option will not
+raise an error if the key container already exists. The option
+[cmd -verifycontext] now defaults to a value that is dependent on other
+arguments.
+
+[bullet]
+[emph "Incompatible change"]
+The commands
+[uri certs.html#cert_set_key_prov [cmd cert_set_key_prov]],
+[uri certs.html#cert_create_self_signed [cmd cert_create_self_signed]]
+now take the key container and key specifier as explicit arguments.
+
+[bullet]
+[emph "Incompatible change"]
+Windows service types and states that are not recognized are returned
+as the string [const unknown] instead of numeric values.
+        
+[list_end]
+
+[section "Version 4.1.27"]
+The major change in this release is support for writing COM servers in Tcl.
+
+[list_begin bullet]
+
+[bullet]
+Added the [uri comserver.html "COM server"] module.
+
+[bullet]
+Added COM security related commands
+[uri com.html#com_initialize_security [cmd com_initialize_security]],
+[uri com.html#com_security_blanket [cmd com_security_blanket]],
+[uri com.html#com_make_credentials [cmd com_make_credentials]]
+and [cmd -securityblanket] option to comobjs.
+
+[bullet] Added the [uri com.html#outvar [cmd outvar]] command.
+
+[bullet] Added LCID support to COM automation clients.
+
+[bullet] Added the [uri base.html#new_guid [cmd new_guid]] command.
+
+[bullet] Added [uri tls.html#starttls [cmd starttls]] command.
+
+[bullet] Added [cmd -token] option to
+[uri process.html#create_process [cmd create_process]].
+
+[bullet]
+Added SID related commands
+[uri security.html#well_known_sid [cmd well_known_sid]],
+[uri security.html#is_well_known_sid [cmd is_well_known_sid]],
+[uri security.html#get_sid_domain [cmd get_sid_domain]],
+[uri security.html#sids_from_same_domain [cmd sids_from_same_domain]].
+
+[bullet]
+Added [cmd -internet_identity] to 
+[uri users.html#get_user_account_info [cmd get_user_account_info]].
+
+[bullet]
+Added 
+[uri security.html#encode_security_descriptor [cmd encode_security_descriptor]]
+and 
+[uri security.html#decode_security_descriptor [cmd decode_security_descriptor]].
+
+[bullet]
+Added [cmd -auditsuccess] and [cmd -auditfailure] to
+[uri security.html#new_ace] for constructing SACL ACEs.
+
+[bullet]
+Added [uri security.html#get_token_default_dacl [cmd get_token_default_dacl]],
+[uri security.html#get_token_origin [cmd get_token_origin]],
+[uri security.html#get_token_tssession [cmd get_token_tssession]]
+
+[bullet]
+Added options [cmd -logonsessionsid] and [cmd -tssession] to
+[uri security.html#get_token_info [cmd get_token_info]].
+
+[bullet] Added
+[uri services.html#set_service_description [cmd set_service_description]],
+[uri services.html#set_service_failure_actions [cmd set_service_failure_actions]]
+and option [cmd -failureactions] to
+[uri services.html#get_service_configuration [cmd get_service_configuration]].
+
+[bullet]
+Added new device management commands
+[uri device.html#rescan_devices [cmd rescan_devices]],
+[uri device.html#devinfoset [cmd devinfoset]],
+[uri device.html#devinfoset_close [cmd devinfoset_close]],
+[uri device.html#devinfoset_element [cmd devinfoset_element]],
+[uri device.html#devinfoset_element_registry_property [cmd devinfoset_element_registry_property]],
+[uri device.html#devinfoset_elements [cmd devinfoset_elements]],
+[uri device.html#device_element [cmd device_element]].
+
+[bullet]
+Added [uri share.html#wnet_connected_resources [cmd wnet_connected_resources]].
+
+[bullet]
+Added [uri console.html#console_read_input_records [cmd console_read_input_records]].
+
+[bullet]
+Added [uri base.html#canonicalize_guid [cmd canonicalize_guid]].
+
+[bullet]
+Added byte swapping commands
+[uri base.html#swap2 [cmd swap2]],
+[uri base.html#swap4 [cmd swap4]] and
+[uri base.html#swap8 [cmd swap8]].
+
+[bullet]
+Added
+[uri process.html#get_system_environment_vars [cmd get_system_environment_vars]],
+[uri process.html#expand_system_environment_vars [cmd expand_system_environment_vars]],
+[uri process.html#get_user_environment_vars [cmd get_user_environment_vars]],
+[uri process.html#expand_user_environment_vars [cmd expand_user_environment_vars]].
+
+[bullet]
+Added [uri process.html#load_user_profile [cmd load_user_profile]] and
+[uri process.html#unload_user_profile [cmd unload_user_profile]].
+
+[bullet]
+Added [uri base.html#get_handle_inheritance [cmd get_handle_inheritance]] and
+[uri base.html#set_handle_inheritance [cmd set_handle_inheritance]].
+
+[bullet]
+[emph "POTENTIAL INCOMPATIBILITY"]
+The [uri process.html#create_process [cmd create_process]] command
+option [cmd -showwindow] default has been changed from [const hidden]
+to [const normal].
+
+[bullet]
+[emph "POTENTIAL INCOMPATIBILITY"]
+The [uri security.html#get_logon_session_info [cmd get_logon_session_info]] 
+command option [cmd -sid] has been renamed to [cmd -usersid].
+
+[list_end]
+
+[section "Version 4.0"]
+Major changes in this release are support for Windows event tracing,
+new Windows event logging API, SSL/TLS sockets,
+greatly enhanced support for CryptoAPI including certificate handling,
+access to performance counters,
+enhancements to the COM module and architectural changes for modularity
+and run-time performance.
+[para]
+Make a special note of the list of [emph "Incompatible Changes"]
+at the end of this section. Some of these differences apply to prior
+4.0 betas as well.
+
+[list_begin bullet]
+
+[bullet]
+Added [uri tls.html SSL/TLS] socket channels.
+
+[bullet]
+Added support for the [uri eventlog.html "new event logging infrastructure"]
+in Windows Vista.
+
+[bullet]
+Added support for reading [uri pdh.html "performance counters"].
+
+[bullet]
+New [uri etw.html "Event Tracing for Windows"] module.
+
+[bullet]
+Enhanced [uri sspi.html SSPI] module including stream support.
+
+[bullet]
+Added [uri crypto.html "certificate commands"] 
+for creation, verification
+and management of certificates and certificate stores.
+
+[bullet]
+New commands
+[uri device.html#eject_media [cmd eject_media]],
+[uri device.html#load_media [cmd load_media]],
+[uri device.html#lock_media [cmd lock_media]] and
+[uri device.html#unlock_media [cmd unlock_media]]
+for dealing with removable media.
+
+[bullet]
+Added [uri base.html#read_credentials [cmd read_credentials]],
+[uri base.html#credentials_dialog [cmd credentials_dialog]],
+[uri base.html#confirm_credentials [cmd confirm_credentials]] and
+[uri security.html#credentials [cmd credentials]].
+
+[bullet]
+Added [uri base.html#conceal [cmd conceal]]/[uri base.html#reveal [cmd reveal]] for memory encryption
+and [uri base.html#protect_data [cmd protect_data]]/[uri base.html#unprotect_data [cmd unprotect_data]]
+for protecting data based on user credentials.
+
+[bullet]
+Added [cmd -active] option to
+[uri com.html#comobj [cmd comobj]] to create an instance
+of an existing object.
+
+[bullet]
+Added [uri com.html#namedarguments "named argument"] 
+support for COM method calls
+
+[bullet]
+Added [uri com.html#generate_code_from_typelib [cmd generate_code_from_typelib]]
+to generate COM client code from type libraries.
+
+[bullet]
+Added COM support for passing SAFEARRAY types as input parameters and
+enhanced output SAFEARRAY values to support multidimensional arrays.
+[emph "POTENTIAL INCOMPATIBILITY"] as previously multidimensional arrays
+were returned as a single list.
+
+[bullet]
+Added [uri com.html [cmd comobj?]] and
+[uri com.html#comobj_instances [cmd comobj_instances]] to check for and
+return instances of [uri com.html#comobj [cmd comobj]] objects.
+
+[bullet]
+Significantly improved COM method call performance through the use of
+TclOO in newer Tcl versions (8.6b2 and later)
+
+[bullet]
+Added [uri com.html#define_dispatch_prototypes [cmd define_dispatch_prototypes]].
+
+[bullet]
+Added [uri network.html#get_network_adapters [cmd get_network_adapters]],
+[uri network.html#get_network_adapters_detail [cmd get_network_adapters_detail]] 
+and [uri network.html#get_network_adapter_info [cmd get_network_adapter_info]].
+
+[bullet]
+Added the common data format [emph "record array"] for collections
+returned by many commands and the corresponding
+[uri base.html#recordarrays [cmd recordarray]] command.
+
+[bullet]
+Added [uri input.html#get_keyboard_layout_name [cmd get_keyboard_layout_name]].
+
+[bullet]
+Added [uri base.html#tclcast [cmd tclcast]] and
+[uri base.html#tcltype [cmd tcltype]].
+
+[bullet]
+Added commands
+[uri users.html#get_user_local_groups [cmd get_user_local_groups]],
+[uri users.html#get_user_global_groups [cmd get_user_global_groups]],
+[uri users.html#add_members_to_local_group [cmd add_members_to_local_group]],
+[uri users.html#remove_members_from_local_group [cmd remove_members_from_local_group]]
+and [cmd "-type sid"] option to [uri users.html#add_member_to_local_group [cmd add_member_to_local_group]],
+[uri users.html#remove_member_from_local_group [cmd remove_member_from_local_group]].
+
+[bullet]
+Added commands
+[uri users.html#get_password_policy [cmd get_password_policy]],
+[uri users.html#get_lockout_policy [cmd get_lockout_policy]],
+[uri users.html#set_password_policy [cmd set_password_policy]] and
+[uri users.html#set_lockout_policy [cmd set_lockout_policy]]
+for dealing with global account settings.
+
+[bullet]
+Added [cmd -runas] to
+[uri shell.html#write_shortcut [cmd write_shortcut]] and
+[uri shell.html#read_shortcut [cmd read_shortcut]].
+
+[bullet]
+Added [uri base.html#random_bytes [cmd random_bytes]].
+
+[bullet]
+Added [cmd -raw] option to 
+[uri clipboard.html#write_clipboard_text [cmd write_clipboard_text]].
+
+[bullet]
+Added [cmd -setvars] option to [uri base.html#parseargs [cmd parseargs]].
+
+[bullet]
+Added the [cmd rethrow], [cmd trapresult] and [cmd trapoptions]
+commands to [uri base.html#trap [cmd trap]].
+
+[bullet]
+Added [uri #get_processor_group_config [cmd get_processor_group_config]]
+and [uri #get_numa_config [cmd get_numa_config]].
+
+[bullet]
+Added [uri base.html#get_build_config [cmd get_build_config]] to
+return build information.
+
+[list_end]
+
+[emph "INCOMPATIBLE CHANGES"]
+[para]
+The following tables list incompatibilities and potential incompatibilities
+with respect to TWAPI 3.1.
+
+[para]
+Base module
+
+[list_begin opt]
+
+[opt_def [uri base.html#debuglog [cmd debuglog]]]
+Calling interface has changed.
+
+
+[opt_def [uri base.html#get_build_config [cmd get_build_config]]]
+Return value format and content has changed.
+
+[opt_def try] Removed
+to prevent conflicts with the [cmd try] command in Tcl 8.6.
+Use [uri base.man#trap [cmd trap]] instead.
+The [var errorCode], [var errorResult] and
+[var errorInfo] variables are no longer brought into scope
+automatically in onerror clauses.
+
+[list_end]
+
+Users and Groups
+
+[list_begin opt]
+
+[opt_def "[uri users.html#get_global_groups get_global_groups] [uri users.html#get_global_group_members get_global_group_members] [uri users.html#get_local_groups get_local_groups] [uri users.html#get_local_group_members get_local_group_members] [uri users.html#get_users get_users]"]
+Commands return [uri base.html#recordarrays "record arrays"]
+instead of a list when the [cmd -level]
+option is used. Field and optin names have been changed for consistency.
+
+[opt_def [uri users.html#get_user_local_groups_recursive get_user_local_groups_recursive]]
+[emph Deprecated]. Use [uri users.html#get_user_local_groups get_user_local_groups] with the [cmd -recurse] flag instead.
+
+[list_end]
+
+Network configuration
+
+[list_begin opt]
+
+[opt_def address_to_hostname] Removed. Use
+the [uri network.html#resolve_address [cmd resolve_address]] command instead.
+
+[opt_def [uri network.html#flush_arp_tables flush_arp_tables]]
+Takes interface names as arguments instead of interface indices.
+
+[opt_def [uri network.html#get_arp_table get_arp_table]]
+Returns the ARP table as a [uri base.html#recordarrays "record array"].
+Options [cmd -ifindex] and [cmd -validonly] are no longer available. Use
+record array filtering instead.
+
+[opt_def get_ip_addresses]
+Was deprecated. Now removed
+Use [uri network.html#get_system_ipaddrs [cmd get_system_ipaddrs]] instead.
+
+[opt_def [cmd get_netif_count], get_netif6_count] Removed.
+Returned internal driver interface information which was misleading
+in terms of the interfaces actually visible at the application level.
+
+[opt_def "get_netif_indices get_netif6_indices"]
+Removed. Use interface names as returned by 
+[uri network.html#get_network_adapters [cmd get_network_adapters]]
+instead.
+
+[opt_def "[uri network.html#get_tcp_connections get_tcp_connections] [uri network.html#get_udp_connections get_udp_connections]"]
+Return connections as [uri base.html#recordarrays "record arrays"]
+instead of lists.
+
+[opt_def [cmd hostname_to_address]] Removed. Use
+the [uri network.html#resolve_hostname [cmd resolve_hostname]] command instead.
+[list_end]
+
+COM
+
+[list_begin opt]
+[opt_def "COM SAFEARRAY"]
+Multidimensional arrays are returned as nested lists. In 3.1, they
+were returned as a single flat list.
+
+[list_end]
+
+Network Shares and Lan Manager
+
+[list_begin opt]
+
+[opt_def "[uri share.html#find_lm_connections find_lm_connections] [uri share.html#find_lm_sessions find_lm_sessions] [uri share.html#find_lm_open_files find_lm_open_files] [uri share.html#get_client_shares get_client_shares] [uri share.html#get_shares get_shares]"]
+Commands return [uri base.html#recordarrays "record arrays"]
+instead of a list when the [cmd -level]
+option is used. Field and option names have been changed for consistency.
+
+[list_end]
+
+Services
+
+[list_begin opt]
+[opt_def "[uri services.html#get_multiple_service_status get_multiple_service_status] [uri services.html#get_dependent_service_status get_dependent_service_status]"]
+Changed to return [uri base.html#recordarrays "record arrays"].
+
+[list_end]
+
+Device module
+
+[list_begin opt]
+[opt_def [uri device.html#device_ioctl device_ioctl]]
+Calling interface has changed.
+
+[list_end]
+
+Windows Shell
+
+[list_begin opt]
+
+[opt_def "file_properties_dialog printer_properties_dialog volume_properties_dialog"] Removed.
+Use [uri shell.html#shell_object_properties_dialog [cmd shell_object_properties_dialog]] instead.
+
+[opt_def [uri shell.html#shell_object_properties_dialog [cmd shell_object_properties_dialog]]]
+Defaults the object type to [const file]
+instead of attempting to guess the type.
+
+[opt_def [cmd TwapiThemeDefineValue]] Removed.
+
+[list_end]
+
+Storage
+
+[list_begin opt]
+
+[opt_def [cmd get_logical_drives]]
+Removed. Use [uri storage.html#find_logical_drives [cmd find_logical_drives]]
+instead.
+
+[list_end]
+
+Processes and Threads
+
+[list_begin opt]
+[opt_def [uri process.html#get_process_info get_process_info]]
+The [cmd -toplevels] option
+is no longer available. 
+Use [uri ui.html#get_toplevel_windows [cmd "get_toplevel_windows -pids"]]
+instead.
+Also, rate based performance options have been removed.
+Equivalent functionality is available through
+[uri pdh.html "performance counters"] commands.
+
+[opt_def [uri process.html#get_thread_info get_thread_info]]
+Rate based performance options have been removed.
+Equivalent functionality is available through
+[uri pdh.html "performance counters"] commands.
+
+[opt_def [uri process.html#get_device_drivers get_device_drivers]]
+Changed to return [uri base.html#recordarrays "record arrays"].
+
+[list_end]
+
+System module
+
+[list_begin opt]
+[opt_def get_active_processor_mask]
+Removed. Use [uri #get_processor_group_configuration [cmd get_processor_group_configuration]] instead.
+[opt_def [uri osinfo.html#get_processor_info get_processor_info]]
+Performance related options have been removed.
+Equivalent functionality is available through
+[uri pdh.html#pdh_system_performance_query [cmd pdh_system_performance_query]].
+The command now returns information about the current processor group,
+not the whole system.
+[opt_def get_system_info]
+Removed. Equivalent
+functionality is available through the
+[uri pdh.html#pdh_system_performance_query [cmd pdh_system_performance_query]],
+[uri osinfo.html#get_system_sid [cmd get_system_sid]] and
+[uri osinfo.html#get_system_uptime [cmd get_system_uptime]] commands.
+
+[opt_def [uri base.html#large_system_time_to_timelist [cmd large_system_time_to_timelist]]]
+Returns an additional element - the day of the week.
+
+[list_end]
+
+Security and CryptoAPI
+
+[list_begin opt]
+
+[opt_def "Password handling"]
+Many commands which take a password as an argument now expect it to be
+passed in encrypted form as returned by 
+[uri base.html#read_credentials [cmd read_credentials]],
+[uri base.html#credentials_dialog [cmd credentials_dialog]] and
+[uri base.html#conceal [cmd conceal]]. Unencrypted
+forms of passwords are still accepted by existing commands
+but are deprecated and support will be dropped in a future release.
+Commands new in 4.0 will only work with the new encrypted password forms.
+
+[opt_def "[uri sspi.html SSPI] interface"] API has been completely redone (post-4.0b23)
+and commands in older versions are no longer present.
+[list_end]
+
+Printers
+
+[list_begin opt]
+[opt_def [uri printer.html#enumerate_printers enumerate_printers]]
+Changed to return [uri base.html#recordarrays "record arrays"].
+[list_end]
+
+[section "Version 3.1"]
+
+Note: Make sure you read list of incompatible changes at the end of this section.
+[list_begin bullet]
+
+[bullet]
+Added support for IPv6 [uri network.html network] commands.
+
+[bullet]
+Added support for 
+[uri shell.html#Taskbar "taskbar notification icons"].
+
+[bullet] Added resource loading commands
+[uri resource.html#extract_resources [cmd extract_resources]],
+[uri resource.html#load_icon_from_file [cmd load_icon_from_file]],
+[uri resource.html#load_cursor_from_file [cmd load_cursor_from_file]],
+[uri resource.html#load_bitmap_from_file [cmd load_bitmap_from_file]],
+[uri resource.html#load_icon_from_module [cmd load_icon_from_module]],
+[uri resource.html#load_cursor_from_module [cmd load_cursor_from_module]],
+[uri resource.html#load_bitmap_from_module [cmd load_bitmap_from_module]],
+[uri resource.html#load_icon_from_system [cmd load_icon_from_system]],
+[uri resource.html#load_cursor_from_system [cmd load_cursor_from_system]],
+[uri resource.html#load_bitmap_from_system [cmd load_bitmap_from_system]],
+[uri resource.html#free_icon [cmd free_icon]],
+[uri resource.html#free_cursor [cmd free_cursor]] and
+[uri resource.html#free_bitmap [cmd free_bitmap]].
+
+[bullet]
+[uri process.html#get_module_handle [cmd get_module_handle]] and
+[uri process.html#get_module_handle_from_address [cmd get_module_handle_from_address]].
+
+[bullet]
+Added options [cmd -primarygroupsid], 
+[cmd -groupattrs], [cmd -restrictedgroups], [cmd -restrictedgroupattrs],
+[cmd -enabledprivileges], 
+[cmd -enabledprivileges] and [cmd -integritylabel] to
+[uri process.html#get_process_info [cmd get_process_info]].
+
+[bullet]
+Added options [cmd -primarygroupsid], 
+[cmd -groupattrs], [cmd -restrictedgroups], [cmd -restrictedgroupattrs],
+[cmd -enabledprivileges], 
+[cmd -enabledprivileges] to
+[uri process.html#get_thread_info [cmd get_thread_info]].
+
+[bullet]
+Added [uri printer.html#get_default_printer [cmd get_default_printer]].
+
+[bullet]
+Enhancements to [uri base.html#parseargs [cmd parseargs]] to
+map boolean true values.
+
+[bullet] [emph "INCOMPATIBILITY"]
+Windows 2000 is no longer supported.
+
+[bullet] [emph "INCOMPATIBILITY"]
+Tcl 8.4 is no longer supported.
+
+[bullet] [emph "INCOMPATIBILITY"]
+The values returned by the [cmd -type] option to
+[uri network.html#get_netif_info [cmd get_netif_info]] have changed.
+
+[bullet] [emph "INCOMPATIBILITY"]
+The values returned by the [cmd -type] option to
+[uri network.html#get_netif_info [cmd get_netif_info]] have changed.
+
+[list_end]
+
+
+[section "Version 3.0"]
+[list_begin bullet]
+
+[bullet] Note the list of [emph "IMCOMPATIBLE CHANGES"] at the end
+of this section.
+
+[bullet]
+Added support for 64-bit versions of Windows.
+
+[bullet]
+Added support for loading into multiple interpreters and multithreading.
+
+[bullet]
+Added [uri installation.html "single-file DLL"] distribution that replaces
+the Tclkit format distribution.
+
+[bullet] Added support for [uri namedpipe.html "named pipe"] channels
+and [uri security.html#impersonate_namedpipe_client impersonate_namedpipe_client].
+
+[bullet] [uri com.html COM] support has been reworked and enhanced to
+include script level access to interfaces and type libraries.
+
+[bullet] Added [uri synch.html synchronization] commands.
+
+[bullet] Added [uri shell.html#shell_execute shell_execute].
+
+[bullet] Added command for manipulating [uri resources.html "Windows resources"].
+
+[bullet]
+Added UAC related commands
+[uri process.html#get_process_elevation get_process_elevation],
+[uri process.html#get_process_integrity get_process_integrity] and,
+[uri process.html#set_process_integrity set_process_integrity] and,
+[uri process.html#virtualized_process virtualized_process],
+[uri process.html#set_process_virtualization set_process_virtualization],
+[uri security.html#get_token_elevation get_token_elevation],
+[uri security.html#get_token_integrity get_token_integrity] and
+[uri security.html#set_token_integrity set_token_integrity],
+[uri security.html#get_token_integrity get_token_integrity_policy] and
+[uri security.html#set_token_integrity set_token_integrity_policy],
+[uri security.html#get_token_virtualization get_token_virtualization] and,
+[uri security.html#set_token_virtualization set_token_virtualization],
+[uri security.html#get_token_linked_token get_token_linked_token].
+
+[bullet]
+Added options -virtualized, -integrity
+and -elevation to
+[uri process.html#get_process_info get_process_info].
+
+[bullet]
+Enhanced
+[uri users.html#enumeratingaccounts "enumeration of users and groups"]
+to support incremental mode of retrieval and 
+to optionally include more account detail.
+
+[bullet]
+Enhanced [uri share.html#get_shares get_shares] and
+[uri share.html#get_client_shares get_client_shares] to optionally return
+additional details.
+
+[bullet]
+Added [uri process.html#wow64_process wow64_process].
+
+[bullet]
+Added [uri process.html#get_pid_from_handle get_pid_from_handle].
+
+[bullet] 
+[uri osinfo.html#get_os_info get_os_info] enhanced to support
+newer operating systems and configurations.
+
+[bullet] Added 
+[uri eventlog.html#eventlog_monitor_start eventlog_monitor_start] for
+asynchronous notification of event log modifications. 
+Enhanced formatting of event log messages to automatically retrieve
+parameter message file references.
+
+[bullet]
+Added [uri ui.html#flash_window flash_window].
+
+[bullet] Added SDDL support through
+[uri security.html#security_descriptor_to_sddl security_descriptor_to_sddl] and
+[uri security.html#sddl_to_security_descriptor sddl_to_security_descriptor].
+
+[bullet]
+Added
+[uri security.html#new_restricted_dacl new_restricted_dacl].
+
+[bullet] Added
+[uri process.html#process_in_administrators process_in_administrators].
+
+[bullet]
+Added -hprocess and -hthread options to
+[uri security.html#open_process_token get_process_token] and
+[uri security.html#open_thread_token get_thread_token] respectively.
+
+[bullet] Added the -attributes option to
+[uri users.html#get_global_group_info get_global_group_info].
+
+[bullet] Added -append option to
+[uri input.html#register_hotkey register_hotkey]
+to allow multiple scripts to register for the same hotkey.
+
+[bullet] Renamed
+[uri try.man#try [cmd try]] to
+[uri try.man#trap [cmd trap]] and aliased it to prevent conflicts
+with Tcl 8.6 [cmd try].
+
+[bullet] Added [uri base.html#debuglog debuglog] command to log debug
+and trace messages.
+
+[bullet] [emph "INCOMPATIBILITY"] Removed the commands
+lock_scm_db, unlock_scm_db and query_scm_db_lock_status
+as they have no effect on Vista and later systems and were rarely used
+on older machines as well.
+
+[bullet] [emph "INCOMPATIBILITY"] The format of the data returned by
+commands that return the status of 
+[uri services.html "Windows services"] has changed.
+
+[bullet] [emph "INCOMPATIBILITY"] Removed the command
+get_mapped_share_info which was deprecated in favor of
+get_client_share_info in previous releases.
+
+[bullet] [emph "INCOMPATIBILITY"] The format of the lists returned by
+[uri services.html#get_dependent_service_status get_dependent_service_status] and
+[uri services.html#get_multiple_service_status get_multiple_service_status]
+has changed to make access simpler and faster.
+
+[bullet] [emph "INCOMPATIBILITY"] The format of the appended arguments
+to the callback invoked via
+[uri storage.html#begin_filesystem_monitor [cmd begin_filesystem_monitor]]
+has changed.
+
+[bullet] [emph "INCOMPATIBILITY"] 
+The format of expiration time of user accounts as returned by
+[uri users.html#get_user_account_info [cmd get_user_account_info]] has changed
+as have the formats accepted by 
+[uri users.html#set_user_account_info [cmd set_user_account_info]]
+and
+[uri users.html#set_user_expiration [cmd set_user_expiration]].
+
+[bullet]
+[emph "INCOMPATIBILITY"] This version supports Windows XP or later versions
+of Windows and version 8.5 or later of Tcl. It has also been tested 
+on Windows 2000 and Tcl 8.4 but any bugs specific to these platforms 
+will not be fixed.
+
+[bullet]
+[emph "INCOMPATIBILITY"] This version does not support
+the [cmd twapi_desktop] and [cmd twapi_server] package subsets of TWAPI
+and does not provide a Tclkit format distribution.
+
+[bullet] [emph "INCOMPATIBILITY"] 
+The command [cmd set_user_priv_level] and the
+[cmd -priv] option to the 
+[uri users.html#get_user_account_info [cmd get_user_account_info]],
+[uri users.html#set_user_account_info [cmd set_user_account_info]]
+and [uri users.html#new_user [cmd new_user]] commands have been removed
+as their use was unsuitable for domain environments. Use specific group
+membership instead to control privileges.
+
+[bullet] [emph "INCOMPATIBILITY"]
+[cmd set_console_input_mode] and [cmd set_console_output_mode]
+are deprecated. Use
+[uri console.html#modify_console_input_mode [cmd modify_console_input_mode]]
+and
+[uri console.html#modify_console_output_mode [cmd modify_console_output_mode]]
+instead.
+
+[list_end]
+
+[section "Version 2.2"]
+[list_begin bullet]
+
+[bullet]
+Added commands 
+[uri com.html#comobj_object comobj_object],
+[uri com.html#progid_to_clsid progid_to_clsid], and
+[uri com.html#clsid_to_progid clsid_to_progid].
+
+[bullet] 
+[uri device.html#devicenotifications "Device notifications"]
+significantly enhanced. New commands
+[uri device.html#start_device_notifier start_device_notifier] and
+[uri device.html#stop_device_notifier stop_device_notifier] for
+handling device event notifications. "INCOMPATIBILITY"
+Commands start_device_change_monitor and stop_device_change_monitor
+are no longer available.
+
+[bullet]
+Support for 
+[uri services.html#writingservicesintcl "Tcl-based Windows services"]
+enhanced to handle additional control signals and system events.
+
+[bullet]
+Added [emph GetSystemMetrics] and [emph GetSystemWow64Directory],
+but no Tcl wrappers.
+
+[list_end]
+
+[section "Version 2.1"]
+[list_begin bullet]
+
+[bullet]
+Built desktop and server specific TWAPI [uri packages.html packages]
+containing a subset of the TWAPI commands with a smaller footprint.
+Reduced footprint of full TWAPI package as well.
+
+[bullet]
+Added [uri shell.html#recycle_file recycle_file].
+
+[bullet]
+Added error notifications to
+[uri storage.html#begin_filesystem_monitor begin_filesystem_monitor].
+
+[bullet]
+Added options -foundcodepage, -foundlangid and
+-datetime to
+[uri resource.html#get_file_version_resource get_file_version_resource].
+
+[bullet]
+Added Wow64EnableWow64FsRedirection, Wow64DisableWow64FsRedirection,
+and Wow64RevertWow64FsRedirection.
+
+[bullet]
+Added new formats to [uri security.html#get_current_user get_current_user].
+
+[bullet]
+Added SHChangeNotify, CryptAcquireContext, CryptReleaseContext, and
+CryptGenRandom. No Tcl wrappers for these.
+
+[list_end]
+
+[section "Version 2.0"]
+
+[list_begin bullet]
+
+[bullet]
+[emph "INCOMPATIBILITY"]
+Windows NT 4.0 is no longer a supported platform.
+
+[bullet]
+Added support for distribution as a single file Tcl module for Tcl 8.5.
+
+[bullet]
+Added support for
+[uri services.html#writingservicesintcl "Tcl-based Windows services"].
+
+[bullet]
+Added [uri msi.html "Microsoft Windows Installer"] interface support.
+
+[bullet]
+Added [uri crypto.html SSPI] support (experimental).
+
+[bullet]
+Added [uri power.html "Power Management"] module.
+
+[bullet]
+Added
+[uri device.html#start_device_change_monitor start_device_change_monitor]
+and
+[uri device.html#stop_device_change_monitor stop_device_change_monitor].
+
+[bullet]
+Added
+[uri clipboard.html#start_clipboard_monitor start_clipboard_monitor]
+and [uri clipboard.html#stop_clipboard_monitor stop_clipboard_monitor].
+
+[bullet]
+Added -patterns option to
+[uri storage.html#begin_filesystem_monitor begin_filesystem_monitor].
+
+[bullet]
+Added [uri process.html#get_priority_class get_priority_class],
+[uri process.html#set_priority_class set_priority_class],
+[uri process.html#get_thread_relative_priority get_thread_relative_priority] and
+ [uri process.html#set_thread_relative_priority set_thread_relative_priority].
+
+[bullet]
+Added commands
+[uri network.html\#get_outgoing_interface get_outgoing_interface],
+[uri network.html\#get_route get_route] and
+[uri network.html\#get_routing_table get_routing_table].
+
+[bullet]
+Added commands
+[uri ui.html\#get_display_devices get_display_devices],
+[uri ui.html\#get_display_monitors get_display_monitors],
+[uri ui.html\#get_display_monitor_from_window get_display_monitor_from_window],
+[uri ui.html\#get_display_monitor_from_point get_display_monitor_from_point],
+[uri ui.html\#get_display_monitor_from_rect get_display_monitor_from_rect],
+[uri ui.html\#get_display_monitor_info get_display_monitor_info].
+
+[bullet] Added commands
+[uri device.html#find_physical_disks find_physical_disks] and
+[uri device.html#get_physical_disk_info get_physical_disk_info].
+
+[bullet] Added
+[uri base.html#create_file create_file].
+
+[bullet] Added
+[uri device.html#device_ioctl device_ioctl].
+
+[bullet] Added -extents option to
+[uri storage.html#get_volume_info get_volume_info].
+
+[bullet]
+Added -isnull subcommand to
+[uri com.html COM] objects.
+
+[bullet] Added
+[uri input.html\#get_input_idle_time get_input_idle_time].
+
+[bullet] Added
+[uri base.html#large_system_time_to_timelist large_system_time_to_timelist] and
+[uri base.html#timelist_to_large_system_time timelist_to_large_system_time].
+
+[bullet] Added
+-modulename, -modulepath, -bindtime options to
+[uri network.html#get_tcp_connections get_tcp_connections]
+and
+[uri network.html#get_udp_connections get_udp_connections].
+Modified -matchremoteaddr and -matchlocaladdr options
+to allow DNS names and accept multiple addresses.
+
+[bullet] Added -messageonlywindow option to
+[uri ui.html#find_windows find_windows].
+
+[bullet]
+Added options -noexist and -noaccess to
+[uri process.html#get_thread_info get_thread_info].
+[emph "INCOMPATIBILITY"] The command
+no longer raises an exception if a thread does not exist
+or cannot be accessed.
+[bullet] Additional performance optimizations.
+
+[list_end]
+
+[section "Version 1.1"]
+
+[list_begin bullet]
+
+[bullet]
+Added enhanced [uri schedule.html "Windows task scheduler"] interface.
+
+[bullet]
+Added commands
+[uri share.html\#find_lm_sessions find_lm_sessions],
+[uri share.html\#end_lm_sessions end_lm_sessions],
+[uri share.html\#get_lm_session_info get_lm_session_info] and
+[uri share.html\#find_lm_connections find_lm_connections]
+dealing with Lan Manager sessions and connections.
+
+[bullet]
+Added commands
+[uri share.html\#find_lm_open_files find_lm_open_files],
+[uri share.html\#close_lm_open_file close_lm_open_file] and
+[uri share.html\#get_lm_open_file_info get_lm_open_file_info]
+dealing with files opened in Lan Manager sessions.
+
+[bullet]
+Added [uri osinfo.html\#find_domain_controller find_domain_controller]
+command.
+
+[bullet]
+Added [uri storage.html\#get_file_times get_file_times] and
+[uri storage.html\#set_file_times set_file_times] dealing
+with file timestamps.
+
+[bullet]
+Enhanced [uri process.html\#get_process_info get_process_info]
+and [uri process.html\#get_thread_info get_thread_info]
+return additional process and thread information.
+
+[bullet]
+Enhanced [uri osinfo.html\#get_processor_info get_processor_info]
+to return additional processor information.
+
+[bullet]
+Enhanced [uri osinfo.html\#get_memory_info get_memory_info]
+to return additional swap file information.
+
+[bullet]
+Replaced Windows performance counter calls with native Win32 calls resulting
+in almost two orders of magnitude better performance in retrieving process,
+thread and system information.
+
+[bullet]
+Added [uri osinfo.html\#get_system_time get_system_time].
+
+[bullet]
+Added
+[uri base.html\#secs_since_1970_to_large_system_time secs_since_1970_to_large_system_time].
+
+[bullet]
+Added [uri com.html\#variant_time_to_timelist variant_time_to_timelist]
+and
+[uri com.html\#timelist_to_variant_time timelist_to_variant_time].
+
+[bullet]
+Added -handle option to
+[uri security.html\#get_resource_security_descriptor get_resource_security_descriptor] and
+options -handle, -unprotect_dacl and -unprotect_sacl to
+[uri security.html\#set_resource_security_descriptor set_resource_security_descriptor].
+
+[bullet]
+Added -logonsession option to
+[uri process.html\#get_process_ids get_process_ids].
+
+[bullet]
+Include process id and attribute information (if available) in
+data returned by
+[uri services.html\#get_service_status get_service_status] and
+[uri services.html\#get_multiple_service_status get_multiple_service_status].
+
+[bullet]
+[emph "INCOMPATIBILITY"]
+Changed default value of
+[uri share.html\#new_share new_share] option -secd.
+
+[bullet]
+Bug fixes.
+
+[list_end]
+
+[section "Version 1.0"]
+
+First official release.
+
+[manpage_end]

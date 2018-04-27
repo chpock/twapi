@@ -1,0 +1,4049 @@
+#
+# Copyright (c) 2007-2014, Ashok P. Nadkarni
+# All rights reserved.
+#
+# See the file LICENSE for license
+
+# This file contains tests for basic operation
+
+package require tcltest
+eval tcltest::configure $argv
+
+source [file join [file dirname [info script]] testutil.tcl]
+load_twapi_package twapi_base
+load_twapi_package twapi_security; # TBD - needed for open_process_token
+
+#
+# Set up system-specific constants that are used to match test results
+namespace eval twapi::base::test {
+    namespace import ::tcltest::test
+
+    ::tcltest::testConstraint win6 [twapi::min_os_version 6]
+
+    variable nosuchvar_error "can't read \"nosuchvar\": no such variable"
+
+    variable guest_account_name Guest
+    variable administrator_account_name Administrator
+    variable administrators_account_name Administrators
+    variable my_sid [name2sid $::env(USERNAME)]
+    variable guest_sid [name2sid $guest_account_name]
+    variable fncounter 0
+    proc newfilename {} {
+        variable fncounter
+        return [clock clicks]-[incr fncounter]
+    }
+
+    ################################################################
+
+    test get_version-1.0 {
+        Get TWAPI version
+    } -body {
+        twapi::get_version
+    } -result 4.3
+
+    test get_version-1.1 {
+        Get TWAPI version patchlevel
+    } -body {
+        twapi::get_version -patchlevel
+    } -result 4.3.1
+
+    ################################################################
+
+    test get_build_config-1.0 {
+        Get the build configuration
+    } -body {
+        verify_kl_fields [twapi::get_build_config] {
+            opts
+            comobj_ootype
+            compiler
+            compiler_version
+            sdk_version
+            single_module
+            tcl_header_version
+            tea
+            source_id
+        }
+    } -result ""
+
+    test get_build_config-1.1 {
+        Get the build configuration (platform)
+    } -constraints {
+        OBSOLETE
+    } -body {
+        twapi::get_build_config platform
+    } -result {x86 x64} -match oneof
+
+    test get_build_config-1.2 {
+        Get the build configuration (build_id)
+    } -constraints {
+        OBSOLETE
+    } -body {
+        string is integer -strict [twapi::get_build_config build_id]
+    } -result 1
+
+    test get_build_config-1.3 {
+        Get the build configuration (embed_type)
+    } -constraints {
+        OBSOLETE
+    } -body {
+        twapi::get_build_config embed_type
+    } -result {plain lzma none} -match oneof
+
+    test get_build_config-1.4 {
+        Get the build configuration (opts)
+    } -body {
+        twapi::get_build_config opts
+    } -result * -match glob
+
+    test get_build_config-1.5 {
+        Get the build configuration (compiler)
+    } -body {
+        twapi::get_build_config compiler
+    } -result {vc++ gcc} -match oneof
+
+    test get_build_config-1.6 {
+        Get the build configuration (compiler_version)
+    } -body {
+        twapi::get_build_config compiler_version
+    } -result {.+} -match regexp
+
+    test get_build_config-1.7 {
+        Get the build configuration (tcl_header_version)
+    } -body {
+        twapi::get_build_config tcl_header_version
+    } -result {^8\.[5]\..+} -match regexp
+
+    test get_build_config-1.8 {
+        Get the build configuration (tea)
+    } -body {
+        twapi::get_build_config tea
+    } -result {^0|1$} -match regexp
+
+    test get_build_config-1.9 {
+        Get the build configuration (source_id)
+    } -body {
+        twapi::get_build_config source_id
+    } -result {^[0-9a-f]{12}.?$} -match regexp
+
+
+    ################################################################
+
+    test create_file-1.0 {
+        create_file new with default options
+    } -constraints {
+        nt
+    } -setup {
+        set fn [file join [tcltest::temporaryDirectory] [newfilename]]
+    } -body {
+        twapi::close_handle [twapi::create_file $fn]
+        file exists $fn
+    } -cleanup {
+        file delete $fn
+    } -result 1
+
+    test create_file-1.1 {
+        create_file existing with default options
+    } -constraints {
+        nt
+    } -setup {
+        set fn [tcltest::makeFile "create_file-1.1" [newfilename]]
+    } -body {
+        twapi::close_handle [twapi::create_file $fn]
+        # Content should not be modified/truncated
+        read_file $fn
+    } -result "create_file-1.1\n"
+
+    
+    test create_file-2.0 {
+        Create a file with a specific integrity value
+    } -constraints {
+        Moved 
+    } -body {
+        # Moved - - now in security.test since it needs security functions
+    }
+
+    test create_file-3.0 {
+        create_file new with -createdisposition create_always
+    } -constraints {
+        nt
+    } -setup {
+        set fn [file join [tcltest::temporaryDirectory] [newfilename]]
+    } -body {
+        twapi::close_handle [twapi::create_file $fn -createdisposition create_always]
+        read_file $fn
+    } -cleanup {
+        file delete $fn
+    } -result ""
+
+    test create_file-3.1 {
+        create_file existing with -createdisposition create_always
+    } -constraints {
+        nt
+    } -setup {
+        set fn [tcltest::makeFile "create_file-3.1" [newfilename]]
+    } -body {
+        twapi::close_handle [twapi::create_file $fn -createdisposition create_always]
+        # Content should be truncated
+        read_file $fn
+    } -result ""
+
+    test create_file-3.2 {
+        create_file new with -createdisposition create_new
+    } -constraints {
+        nt
+    } -setup {
+        set fn [file join [tcltest::temporaryDirectory] [newfilename]]
+    } -body {
+        twapi::close_handle [twapi::create_file $fn -createdisposition create_new]
+        read_file $fn
+    } -cleanup {
+        file delete $fn
+    } -result ""
+
+    test create_file-3.3 {
+        create_file existing with -createdisposition create_new
+    } -constraints {
+        nt
+    } -setup {
+        set fn [tcltest::makeFile "create_file-3.3" [newfilename]]
+    } -body {
+        list [catch {twapi::create_file $fn -createdisposition create_new}] \
+            [lindex $::errorCode 0] [lindex $::errorCode 1] \
+            [string trimright [read_file $fn]]
+    } -result {1 TWAPI_WIN32 80 create_file-3.3}
+
+    test create_file-3.4 {
+        create_file new with -createdisposition open_always
+    } -constraints {
+        nt
+    } -setup {
+        set fn [file join [tcltest::temporaryDirectory] [newfilename]]
+    } -body {
+        twapi::close_handle [twapi::create_file $fn -createdisposition open_always]
+        read_file $fn
+    } -cleanup {
+        file delete $fn
+    } -result ""
+
+    test create_file-3.5 {
+        create_file existing with -createdisposition open_always
+    } -constraints {
+        nt
+    } -setup {
+        set fn [tcltest::makeFile "create_file-3.5" [newfilename]]
+    } -body {
+        twapi::close_handle [twapi::create_file $fn -createdisposition open_always]
+        # Content should not be truncated
+        read_file $fn
+    } -result "create_file-3.5\n"
+
+    test create_file-3.6 {
+        create_file new with -createdisposition open_existing
+    } -constraints {
+        nt
+    } -setup {
+        set fn [file join [tcltest::temporaryDirectory] [newfilename]]
+    } -body {
+        list [catch {twapi::create_file $fn -createdisposition open_existing}] \
+            [lindex $::errorCode 0] [lindex $::errorCode 1]
+    } -result {1 TWAPI_WIN32 2}
+
+    test create_file-3.7 {
+        create_file existing with -createdisposition open_existing
+    } -constraints {
+        nt
+    } -setup {
+        set fn [tcltest::makeFile "create_file-3.7" [newfilename]]
+    } -body {
+        twapi::close_handle [twapi::create_file $fn -createdisposition open_existing]
+        read_file $fn
+    } -result "create_file-3.7\n"
+
+    test create_file-3.8 {
+        create_file new with -createdisposition truncate_existing
+    } -constraints {
+        nt
+    } -setup {
+        set fn [file join [tcltest::temporaryDirectory] [newfilename]]
+    } -body {
+        list [catch {twapi::create_file $fn -createdisposition truncate_existing -access generic_write}] \
+            [lindex $::errorCode 0] [lindex $::errorCode 1]
+    } -result {1 TWAPI_WIN32 2}
+
+    test create_file-3.9 {
+        create_file existing with -createdisposition truncate_existing
+    } -constraints {
+        nt
+    } -setup {
+        set fn [tcltest::makeFile "create_file-3.7" [newfilename]]
+    } -body {
+        twapi::close_handle [twapi::create_file $fn -createdisposition truncate_existing -access generic_write]
+        read_file $fn
+    } -result ""
+
+    test create_file-4.0 {
+        create_file new file with -secd
+    } -constraints {
+        nt
+    } -setup {
+        set fn [file join [tcltest::temporaryDirectory] [newfilename]]
+        # We do not want to pull in the security package so manually
+        # construct the security descriptor
+        set sid [name2sid $::env(USERNAME)]
+        # twapi::new_restricted_dacl $::env(USERNAME) generic_all
+        set dacl [list 2 [list [list 0 0 268435456 $sid]]]
+        # twapi::new_security_descriptor -dacl $dacl
+        set secd [list 4 {} {} $dacl null]
+    } -body {
+        twapi::close_handle [twapi::create_file $fn -secd $secd]
+        string equal -nocase "[file nativename $fn] $::env(COMPUTERNAME)\\$::env(USERNAME):F" [string trim [exec [auto_execok cacls.exe] $fn]]
+    } -cleanup {
+        file delete $fn
+    } -result 1
+
+    test create_file-5.0 {
+        create_file new file with -flags 0x20 (archive)
+    } -constraints {
+        nt
+    } -setup {
+        set fn [file join [tcltest::temporaryDirectory] [newfilename]]
+        set fn2 [file join [tcltest::temporaryDirectory] [newfilename]]
+    } -body {
+        twapi::close_handle [twapi::create_file $fn -flags 0x0]
+        twapi::close_handle [twapi::create_file $fn2 -flags 0x20]
+        list [file attributes $fn -archive] [file attributes $fn2 -archive]
+    } -cleanup {
+        file delete $fn
+        file delete $fn2
+    } -result [list 1 1]
+
+    test create_file-5.1 {
+        create_file new file with -flags 0x1 (readonly)
+    } -constraints {
+        nt
+    } -setup {
+        set fn [file join [tcltest::temporaryDirectory] [newfilename]]
+        set fn2 [file join [tcltest::temporaryDirectory] [newfilename]]
+    } -body {
+        twapi::close_handle [twapi::create_file $fn -flags 0x0]
+        twapi::close_handle [twapi::create_file $fn2 -flags 0x1]
+        list [file attributes $fn -readonly] [file attributes $fn2 -readonly]
+    } -cleanup {
+        file delete $fn
+        file delete $fn2
+    } -result [list 0 1]
+
+    test create_file-5.2 {
+        create_file new file with -flags 0x4 (system)
+    } -constraints {
+        nt
+    } -setup {
+        set fn [file join [tcltest::temporaryDirectory] [newfilename]]
+        set fn2 [file join [tcltest::temporaryDirectory] [newfilename]]
+    } -body {
+        twapi::close_handle [twapi::create_file $fn -flags 0x0]
+        twapi::close_handle [twapi::create_file $fn2 -flags 0x4]
+        list [file attributes $fn -system] [file attributes $fn2 -system]
+    } -cleanup {
+        file delete $fn
+        file delete $fn2
+    } -result [list 0 1]
+
+    test create_file-5.3 {
+        create_file new file with -flags 0x2 (hidden)
+    } -constraints {
+        nt
+    } -setup {
+        set fn [file join [tcltest::temporaryDirectory] [newfilename]]
+        set fn2 [file join [tcltest::temporaryDirectory] [newfilename]]
+    } -body {
+        twapi::close_handle [twapi::create_file $fn -flags 0x0]
+        twapi::close_handle [twapi::create_file $fn2 -flags 0x2]
+        list [file attributes $fn -hidden] [file attributes $fn2 -hidden]
+    } -cleanup {
+        file delete $fn
+        file delete $fn2
+    } -result [list 0 1]
+
+    test create_file-5.4 {
+        create_file new file with -flags 0x80 (normal)
+    } -constraints {
+        nt
+    } -setup {
+        set fn [file join [tcltest::temporaryDirectory] [newfilename]]
+    } -body {
+        twapi::close_handle [twapi::create_file $fn -flags 0x80]
+        list [file attributes $fn -hidden] [file attributes $fn -system] [file attributes $fn -readonly]
+    } -cleanup {
+        file delete $fn
+    } -result [list 0 0 0]
+
+    test create_file-5.5 {
+        create_file new file with -flags 0x04000000 (delete on close)
+    } -constraints {
+        nt
+    } -setup {
+        set fn [file join [tcltest::temporaryDirectory] [newfilename]]
+    } -body {
+        twapi::close_handle [twapi::create_file $fn -flags 0x04000000]
+        file exists $fn
+    } -result 0
+
+
+    set testnum 5
+    foreach opt {-access -inherit -share -templatefile} {
+        test create_file-$testnum.0 "create_file with $opt" -constraints {TBD} -body {} -result ""
+    }
+
+    ################################################################
+
+    test lookup_account_name-1.0 {
+        Look up the SID for a user name
+    } -constraints {
+        nt
+    } -body {
+        twapi::is_valid_sid_syntax [twapi::lookup_account_name $::env(USERNAME)]
+    } -result 1
+
+    ###
+
+    test lookup_account_name-1.1 {
+        Look up the SID for a group name
+    } -constraints {
+        nt
+    } -body {
+        twapi::lookup_account_name administrators
+    } -result S-1-5-32-544
+
+    ###
+
+    test lookup_account_name-2.0 {
+        Look up all attributes for a user name
+    } -constraints {
+        nt
+    } -body {
+        array unset unameinfo
+        array set unameinfo [twapi::lookup_account_name $::env(USERNAME) -all]
+        if {[indomain]} {
+            set dom [testconfig domain_name]
+        } else {
+            set dom $::env(COMPUTERNAME)
+        }
+
+        list [setops::symdiff [array names unameinfo] {-domain -type -sid}] \
+            [twapi::is_valid_sid_syntax $unameinfo(-sid)] \
+            $unameinfo(-type) \
+            [string equal -nocase $unameinfo(-domain) $dom]
+    } -result {{} 1 user 1} -match list
+
+    ###
+
+    test lookup_account_name-2.1 {
+        Look up all attributes for a group name
+    } -constraints {
+        nt
+    } -body {
+        array unset unameinfo
+        array set unameinfo [twapi::lookup_account_name administrators -all]
+        list \
+            [setops::symdiff [array names unameinfo] {-domain -type -sid}] \
+            $unameinfo(-sid)  \
+            $unameinfo(-type)
+    } -result {{} S-1-5-32-544 alias} -match list
+
+    ###
+
+    test lookup_account_name-3.0 {
+        Look up the domain for a user name
+    } -constraints {
+        nt
+    } -body {
+        array unset unameinfo
+        array set unameinfo [twapi::lookup_account_name $::env(USERNAME) -domain]
+        expr {
+              [array size unameinfo] == 1 &&
+              [info exists unameinfo(-domain)]
+          }
+    } -result 1
+
+    ###
+
+    test lookup_account_name-3.1 {
+        Look up the domain for a user name (local computer)
+    } -constraints {
+        nt
+    } -body {
+        array unset unameinfo
+        array set unameinfo [twapi::lookup_account_name $guest_account_name -domain]
+        expr {
+              [array size unameinfo] == 1 &&
+              [string equal -nocase $unameinfo(-domain) $::env(COMPUTERNAME)]
+          }
+    } -result 1
+
+    ###
+
+    test lookup_account_name-3.2 {
+        Look up the domain for a group name
+    } -constraints {
+        nt
+    } -body {
+        array unset unameinfo
+        array set unameinfo [twapi::lookup_account_name administrators -domain]
+        expr {
+              [array size unameinfo] == 1 &&
+              $unameinfo(-domain) == "BUILTIN"
+          }
+    } -result 1
+
+    test lookup_account_name-4.0 {
+        Look up the type for a user name
+    } -constraints {
+        nt
+    } -body {
+        array unset unameinfo
+        array set unameinfo [twapi::lookup_account_name $::env(USERNAME) -type]
+        expr {
+              [array size unameinfo] == 1 &&
+              $unameinfo(-type) == "user"
+          }
+    } -result 1
+
+    ###
+
+    test lookup_account_name-4.1 {
+        Look up the type for an alias
+    } -constraints {
+        nt
+    } -body {
+        array unset unameinfo
+        array set unameinfo [twapi::lookup_account_name administrators -type]
+        expr {
+              [array size unameinfo] == 1 &&
+              $unameinfo(-type) == "alias"
+          }
+    } -result 1
+
+    ###
+
+    test lookup_account_name-4.2 {
+        Look up the type for a well known group
+    } -constraints {
+        nt
+    } -body {
+        array unset unameinfo
+        array set unameinfo [twapi::lookup_account_name everyone -type]
+        expr {
+              [array size unameinfo] == 1 &&
+              $unameinfo(-type) == "wellknowngroup"
+          }
+    } -result 1
+
+    ###
+
+    test lookup_account_name-5.0 {
+        Look up SID for a user name
+    } -constraints {
+        nt
+    } -body {
+        array unset unameinfo
+        array set unameinfo [twapi::lookup_account_name $::env(USERNAME) -sid]
+        expr {
+              [array size unameinfo] == 1 &&
+              [twapi::is_valid_sid_syntax $unameinfo(-sid)]
+          }
+    } -result 1
+
+    ###
+
+    test lookup_account_name-5.1 {
+        Look up SID for a group alias name
+    } -constraints {
+        nt
+    } -body {
+        array unset unameinfo
+        array set unameinfo [twapi::lookup_account_name administrators -sid]
+        expr {
+              [array size unameinfo] == 1 &&
+              $unameinfo(-sid) ==  "S-1-5-32-544"
+          }
+    } -result 1
+
+    ###
+
+    test lookup_account_name-5.2 {
+        Look up SID for a well known group name
+    } -constraints {
+        nt
+    } -body {
+        array unset unameinfo
+        array set unameinfo [twapi::lookup_account_name everyone -sid]
+        expr {
+              [array size unameinfo] == 1 &&
+              $unameinfo(-sid) ==  "S-1-1-0"
+          }
+    } -result 1
+
+    ################################################################
+
+    test lookup_account_sid-1.0 {
+        Look up the name for a user SID
+    } -constraints {
+        nt
+    } -body {
+        twapi::lookup_account_sid $my_sid
+    } -result $::env(USERNAME)
+
+    ###
+
+    test lookup_account_sid-1.1 {
+        Look up the name for a group alias
+    } -constraints {
+        nt
+    } -body {
+        twapi::lookup_account_sid S-1-5-32-544
+    } -result $administrators_account_name
+
+    ###
+
+    test lookup_account_sid-2.0 {
+        Look up all attributes for a user SID
+    } -constraints {
+        nt
+    } -body {
+        array unset unameinfo
+        array set unameinfo [twapi::lookup_account_sid $my_sid -all]
+        expr {
+              [llength [setops::symdiff [array names unameinfo] {-domain -type -name}]] == 0 &&
+              $unameinfo(-name) == "$::env(USERNAME)" &&
+              $unameinfo(-type) == "user"
+          }
+    } -result 1
+
+    ###
+
+    test lookup_account_sid-2.1 {
+        Look up all attributes for a group alias
+    } -constraints {
+        nt
+    } -body {
+        array unset unameinfo
+        array set unameinfo [twapi::lookup_account_sid S-1-5-32-544 -all]
+        expr {
+              [llength [setops::symdiff [array names unameinfo] {-domain -type -name}]] == 0 &&
+              $unameinfo(-name) == "$administrators_account_name" &&
+              $unameinfo(-type) == "alias"
+          }
+    } -result 1
+
+    ###
+
+    test lookup_account_sid-3.0 {
+        Look up the domain for a user sid
+    } -constraints {
+        nt
+    } -body {
+        array unset unameinfo
+        array set unameinfo [twapi::lookup_account_sid $my_sid -domain]
+        expr {
+              [array size unameinfo] == 1 &&
+              [info exists unameinfo(-domain)]
+          }
+    } -result 1
+
+    ###
+
+    test lookup_account_sid-3.1 {
+        Look up the domain for a user sid (local computer)
+    } -constraints {
+        nt
+    } -body {
+        array unset unameinfo
+        array set unameinfo [twapi::lookup_account_sid $guest_sid -domain]
+        expr {
+              [array size unameinfo] == 1 &&
+              [string equal -nocase $unameinfo(-domain) $::env(COMPUTERNAME)]
+          }
+    } -result 1
+
+    ###
+
+    test lookup_account_sid-3.2 {
+        Look up the domain for a group alias sid
+    } -constraints {
+        nt
+    } -body {
+        array unset unameinfo
+        array set unameinfo [twapi::lookup_account_sid S-1-5-32-544 -domain]
+        expr {
+              [array size unameinfo] == 1 &&
+              $unameinfo(-domain) == "BUILTIN"
+          }
+    } -result 1
+
+    test lookup_account_sid-4.0 {
+        Look up the type for a user sid
+    } -constraints {
+        nt
+    } -body {
+        array unset unameinfo
+        array set unameinfo [twapi::lookup_account_sid $my_sid -type]
+        expr {
+              [array size unameinfo] == 1 &&
+              $unameinfo(-type) == "user"
+          }
+    } -result 1
+
+    ###
+
+    test lookup_account_sid-4.1 {
+        Look up the type for an alias
+    } -constraints {
+        nt
+    } -body {
+        array unset unameinfo
+        array set unameinfo [twapi::lookup_account_sid S-1-5-32-544 -type]
+        expr {
+              [array size unameinfo] == 1 &&
+              $unameinfo(-type) == "alias"
+          }
+    } -result 1
+
+    ###
+
+    test lookup_account_sid-4.2 {
+        Look up the type for a well known group sid
+    } -constraints {
+        nt
+    } -body {
+        array unset unameinfo
+        array set unameinfo [twapi::lookup_account_sid S-1-1-0 -type]
+        expr {
+              [array size unameinfo] == 1 &&
+              $unameinfo(-type) == "wellknowngroup"
+          }
+    } -result 1
+
+    ###
+
+    test lookup_account_sid-5.0 {
+        Look up name for a user sid
+    } -constraints {
+        nt
+    } -body {
+        array unset unameinfo
+        array set unameinfo [twapi::lookup_account_sid $my_sid -name]
+        expr {
+              [array size unameinfo] == 1 &&
+              $unameinfo(-name) == "$::env(USERNAME)"
+          }
+    } -result 1
+
+    ###
+
+    test lookup_account_sid-5.1 {
+        Look up name for a group alias SID
+    } -constraints {
+        nt
+    } -body {
+        array unset unameinfo
+        array set unameinfo [twapi::lookup_account_sid S-1-5-32-544 -name]
+        expr {
+              [array size unameinfo] == 1 &&
+              $unameinfo(-name) ==  "$administrators_account_name"
+          }
+    } -result 1
+
+    ###
+
+    test lookup_account_sid-5.2 {
+        Look up name SID for a well known group SID
+    } -constraints {
+        nt
+    } -body {
+        array unset unameinfo
+        array set unameinfo [twapi::lookup_account_sid S-1-1-0 -name]
+        expr {
+              [array size unameinfo] == 1 &&
+              $unameinfo(-name) ==  "Everyone"
+          }
+    } -result 1
+
+    ################################################################
+
+    test map_account_to_sid-1.0 {
+        Map a account name to a SID
+    } -constraints {
+        nt
+    } -body {
+        twapi::map_account_to_sid $guest_account_name
+    } -result $guest_sid
+
+    ###
+
+    test map_account_to_sid-1.1 {
+        Verify mapping account SID returns the same SID
+    } -constraints {
+        nt
+    } -body {
+        twapi::map_account_to_sid $guest_sid
+    } -result $guest_sid
+
+    ###
+
+    test map_account_to_sid-2.0 {
+        Map account to SID on another system (UNC)
+    } -constraints {
+        nt
+    } -body {
+        twapi::map_account_to_sid $::env(USERNAME) -system \\\\127.0.0.1
+    } -result $my_sid
+
+    ###
+
+    test map_account_to_sid-2.1 {
+        Map account to SID on another system (non-UNC)
+    } -constraints {
+        nt
+    } -body {
+        twapi::map_account_to_sid $::env(USERNAME) -system 127.0.0.1
+    } -result $my_sid
+
+    ################################################################
+
+    test map_account_to_name-1.0 {
+        Map a account SID to a name
+    } -constraints {
+        nt
+    } -body {
+        twapi::map_account_to_name $guest_sid
+    } -result $guest_account_name
+
+    ###
+
+    test map_account_to_name-1.1 {
+        Verify mapping account name returns the same name
+    } -constraints {
+        nt
+    } -body {
+        twapi::map_account_to_name $guest_account_name
+    } -result $guest_account_name
+
+    ###
+
+    test map_account_to_name-2.0 {
+        Map account to name on another system (UNC)
+    } -constraints {
+        nt
+    } -body {
+        twapi::map_account_to_name $guest_sid -system \\\\127.0.0.1
+    } -result $guest_account_name
+
+    ###
+
+    test map_account_to_name-2.1 {
+        Map account to name on another system (non-UNC)
+    } -constraints {
+        nt
+    } -body {
+        twapi::map_account_to_name $guest_sid -system 127.0.0.1
+    } -result $guest_account_name
+
+    ################################################################
+
+    test get_current_user-1.0 {
+        Get current user name
+    } -constraints {
+        nt
+    } -body {
+        set uname [string tolower [twapi::get_current_user]]
+    } -result [string tolower [expr {[indomain] ? [testconfig domain_name] : $::env(COMPUTERNAME)}]\\$::env(USERNAME)]
+
+    ###
+
+    test get_current_user-2.0 {
+        Get current user SID
+    } -constraints {
+        nt
+    } -body {
+        twapi::get_current_user -sid
+    } -result $my_sid
+
+    ################################################################
+
+    test new_uuid-1.0 {
+        Generate a new UUID
+    } -body {
+        twapi::new_uuid
+    } -result {^[[:xdigit:]]{8}-[[:xdigit:]]{4}-[[:xdigit:]]{4}-[[:xdigit:]]{4}-[[:xdigit:]]{12}$} -match regexp
+
+    ################################################################
+
+    test nil_uuid-1.0 {
+        Generate a nil UUID
+    } -body {
+        twapi::nil_uuid
+    } -result "00000000-0000-0000-0000-000000000000"
+
+    ################################################################
+
+    test new_guid-1.0 {
+        Generate a new guid
+    } -body {
+        twapi::new_guid
+    } -result {^\{[[:xdigit:]]{8}-[[:xdigit:]]{4}-[[:xdigit:]]{4}-[[:xdigit:]]{4}-[[:xdigit:]]{12}\}$} -match regexp
+
+
+    ################################################################
+
+    test large_system_time_to_secs_since_1970-1.0 {
+        Convert clock epoch base in large system time units to epoch seconds
+    } -constraints {
+        nt
+    } -body {
+        twapi::large_system_time_to_secs_since_1970 116444736000000000
+    } -result 0
+
+    ###
+
+    test large_system_time_to_secs_since_1970-2.0 {
+        Convert fractional seconds since clock epoch base in large system time units to epoch fractional seconds
+    } -constraints {
+        nt
+    } -body {
+        twapi::large_system_time_to_secs_since_1970 116444736000000123 true
+    } -result 0.0000123
+
+    ###
+
+    test large_system_time_to_secs_since_1970-2.0 {
+        Convert fractional seconds since clock epoch base in large system time units to epoch fractional seconds
+    } -constraints {
+        nt
+    } -body {
+        twapi::large_system_time_to_secs_since_1970 116444736000000123 true
+    } -result 0.0000123
+
+    ###
+
+    test large_system_time_to_secs_since_1970-3.0 {
+        Convert non-whole seconds since clock epoch base in large system time units to epoch whole seconds
+    } -constraints {
+        nt
+    } -body {
+        twapi::large_system_time_to_secs_since_1970 116444736020000123 false
+    } -result 2
+
+    ###
+
+    test large_system_time_to_secs_since_1970-3.1 {
+        Convert non-whole seconds since clock epoch base in large system time units to epoch fractional seconds
+    } -constraints {
+        nt
+    } -body {
+        twapi::large_system_time_to_secs_since_1970 116444736020000123 true
+    } -result 2.0000123
+
+
+    ################################################################
+
+    test secs_since_1970_to_large_system_time-1.0 {
+        Convert clock epoch base to large system time units
+    } -constraints {
+        nt
+    } -body {
+        twapi::secs_since_1970_to_large_system_time 0
+    } -result 116444736000000000
+
+    ###
+
+    test secs_since_1970_to_large_system_time-2.0 {
+        Convert clock epoch time to large system time units
+    } -constraints {
+        nt
+    } -body {
+        twapi::secs_since_1970_to_large_system_time 2
+    } -result 116444736020000000
+
+    ###
+
+    test secs_since_1970_to_large_system_time-3.0 {
+        Check consistency between secs_since_1970_to_large_system_time and large_system_time_to_secs_since_1970
+    } -constraints {
+        nt
+    } -body {
+        set secs [clock seconds]
+        set secs2 [twapi::large_system_time_to_secs_since_1970 [twapi::secs_since_1970_to_large_system_time $secs]]
+        expr {$secs == $secs2}
+    } -result 1
+
+
+    ################################################################
+
+    test large_system_time_to_timelist-1.0 {
+        Convert system time epoch to timelist
+    } -constraints {
+        nt
+    } -body {
+        join [twapi::large_system_time_to_timelist 0] ,
+    } -result "1601,1,1,0,0,0,0,1"
+
+    ###
+
+    test large_system_time_to_timelist-1.1 {
+        Convert current system epoch to timelist
+    } -constraints {
+        nt
+    } -body {
+        join [twapi::large_system_time_to_timelist 128121282305000000] ,
+    } -result "2007,1,1,12,30,30,500,1"
+
+    test large_system_time_to_timelist-1.2 {
+        Convert current system epoch to timelist
+    } -constraints {
+        nt
+    } -body {
+        join [twapi::large_system_time_to_timelist [expr {128121282305000000+86400*10000000}]] ,
+    } -result "2007,1,2,12,30,30,500,2"
+
+    ################################################################
+
+    test timelist_to_large_system_time-1.0 {
+        Convert timelist format system time epoch to system time
+    } -constraints {
+        nt
+    } -body {
+        twapi::timelist_to_large_system_time {1601 1 1 0 0 0 0}
+    } -result 0
+
+    ###
+
+    test timelist_to_large_system_time-1.1 {
+        Convert timelist format to system time
+    } -constraints {
+        nt
+    } -body {
+        twapi::timelist_to_large_system_time {2007 1 1 12 30 30 500}
+    } -result 128121282305000000
+
+    ###
+
+    test timelist_to_large_system_time-1.2 {
+        Convert timelist format to system time (day specified)
+    } -constraints {
+        nt
+    } -body {
+        twapi::timelist_to_large_system_time {2007 1 1 12 30 30 500 1}
+    } -result 128121282305000000
+
+
+    ################################################################
+
+    test expand_environment_strings-1.0 {
+        Expand a single environment string
+    } -body {
+        twapi::expand_environment_strings "%USERNAME%"
+    } -result $::env(USERNAME)
+
+    test expand_environment_strings-1.1 {
+        Expand a single embedded environment string
+    } -body {
+        twapi::expand_environment_strings "x%USERNAME%y"
+    } -result x$::env(USERNAME)y
+
+    test expand_environment_strings-1.2 {
+        Expand multiple embedded environment strings
+    } -body {
+        twapi::expand_environment_strings "x%USERNAME%y%computername%"
+    } -result x$::env(USERNAME)y$::env(COMPUTERNAME)
+
+    test expand_environment_strings-1.3 {
+        Expand long embedded environment strings
+    } -body {
+        twapi::expand_environment_strings [string repeat %PATH% 10]
+    } -result [string repeat $env(PATH) 10]
+
+    test expand_environment_strings-2.0 {
+        Verify environment variables that are not defined are not modified
+    } -body {
+        twapi::expand_environment_strings "x%USERNAME%y%XXX%z"
+    } -result x$::env(USERNAME)y%XXX%z
+
+    test expand_environment_strings-2.0 {
+        Expand empty string
+    } -body {
+        twapi::expand_environment_strings ""
+    } -result ""
+
+    test expand_environment_strings-2.1 {
+        Expand a string matching env name but without %
+    } -body {
+        twapi::expand_environment_strings "USERNAME"
+    } -result "USERNAME"
+
+    ################################################################
+
+    test format_message-1.0 {
+        Format a message from the system
+    } -body {
+        string trim [twapi::format_message -messageid 5]
+    } -result [twapi::map_windows_error 5]
+
+
+    test format_message-2.0 {
+        Format a message from a string with no inserts
+    } -body {
+        twapi::format_message -fmtstring "This is a string"
+    } -result "This is a string"
+
+    test format_message-2.1 {
+        Format a message from a string with inserts
+    } -body {
+        set fmts {}
+        set result {}
+        for {set i 1} {$i < 100} {incr i} {
+            set fmts [linsert $fmts 0 %$i]; # Reverse order
+            set result [linsert $result 0 $i]; # Reverse order
+            lappend params $i
+        }
+
+        expr {
+              [twapi::format_message -fmtstring $fmts -params $params] eq $result
+          }
+    } -result 1
+
+    test format_message-2.2 {
+        Format a message from a string with -ignoreinserts
+    } -body {
+        twapi::format_message -fmtstring "%1 %2" -params {a b} -ignoreinserts
+    } -result "%1 %2"
+
+    test format_message-2.3 {
+        Format a message from a string with missing insert parameters
+    } -body {
+        twapi::format_message -fmtstring "Missing %1 %2"
+    } -result "Missing %1 %2"
+
+    test format_message-3.0 {
+        Format a message from a string with -width
+    } -body {
+        twapi::format_message -fmtstring "123456789" -width 3
+    } -result "123\r\n456\r\n789\r\n"
+
+    test format_message-3.1 {
+        Format a message from a string with -width -1 and %n
+    } -body {
+        twapi::format_message -fmtstring "123\r\n456%n789" -width -1
+    } -result "123 456\r\n789"
+
+    ################################################################
+
+    test map_windows_error-1.0 {
+        Map Windows error
+    } -body {
+        twapi::map_windows_error 2
+    } -result "The system cannot find the file specified."
+
+    test map_windows_error-2.0 {
+        Map unmappable Windows error
+    } -body {
+        twapi::map_windows_error 2452345
+    } -result "Windows error: 2452345"
+
+    test map_windows_error-3.0 {
+        Map TWAPI Windows error
+    } -body {
+        twapi::map_windows_error [expr {0xE0000000 | (0xABC << 16) | 1}]
+    } -result "Invalid or badly formatted arguments specified."
+
+    test map_windows_error-4.0 {
+        Map LANMAN error
+    } -body {
+        twapi::map_windows_error [expr {2100+2}]
+    } -result "The workstation driver is not installed."
+
+    test map_windows_error-5.0 {
+        Map NTSTATUS error
+    } -body {
+        twapi::map_windows_error 0x40010003
+    } -result "Debugger terminated thread."
+
+    ################################################################
+
+    test win32_error-1.0 {
+        Generate Windows error
+    } -body {
+        twapi::win32_error 2
+    } -result "The system cannot find the file specified." -returnCodes [list error]
+
+    test win32_error-2.0 {
+        Map unmappable Windows error
+    } -body {
+        twapi::win32_error 2452345
+    } -result "Windows error: 2452345" -returnCodes [list error]
+
+    test win32_error-3.0 {
+        Map TWAPI Windows error
+    } -body {
+        twapi::win32_error [expr {0xE0000000 | (0xABC << 16) | 1}]
+    } -result "Invalid or badly formatted arguments specified." -returnCodes [list error]
+
+    test win32_error-4.0 {
+        Map LANMAN error
+    } -body {
+        twapi::win32_error [expr {2100+2}]
+    } -result "The workstation driver is not installed." -returnCodes [list error]
+
+    test win32_error-5.0 {
+        Map NTSTATUS error
+    } -body {
+        twapi::win32_error 0x40010003
+    } -result "Debugger terminated thread." -returnCodes [list error]
+
+    test win32_error-6.0 {
+        Generate Windows error with appended message
+    } -body {
+        twapi::win32_error 2 "Additional information:"
+    } -result "Additional information: The system cannot find the file specified." -returnCodes [list error]
+
+    ################################################################
+
+    test twine-1.0 {
+        Twine empty lists
+    } -body {
+        twapi::twine {} {}
+    } -result {}
+
+    test twine-1.1 {
+        Twine one empty
+    } -body {
+        twapi::twine {a b} {}
+    } -result {a {} b {}}
+
+    test twine-1.2 {
+        Twine equal lists
+    } -body {
+        twapi::twine {a b c} {1 2 3}
+    } -result {a 1 b 2 c 3}
+
+    test twine-1.3 {
+        Twine unequal lists
+    } -body {
+        twapi::twine {a b} {1 2 3}
+    } -result {a 1 b 2 {} 3}
+
+    test twine-1.4 {
+        Twine unequal lists
+    } -body {
+        twapi::twine {a b c} {1 2}
+    } -result {a 1 b 2 c {}}
+
+    test twine-1.5 {
+        Twine two large lists (allocation differs from small case)
+    } -body {
+        twapi::twine [lrepeat 5000 a] [lrepeat 5000 b]
+    } -result [lrepeat 5000 a b]
+
+    test twine-1.6 {
+        Twine two large unequal lists (allocation differs from small case)
+    } -body {
+        twapi::twine [lrepeat 5100 a] [lrepeat 5000 b]
+    } -result [linsert [lrepeat 5000 a b] end {*}[lrepeat 100 a {}]]
+
+    test twine-1.7 {
+        Twine two large unequal lists (allocation differs from small case)
+    } -body {
+        twapi::twine [lrepeat 5000 a] [lrepeat 5100 b]
+    } -result [linsert [lrepeat 5000 a b] end {*}[lrepeat 100 {} b]]
+
+    ################################################################
+
+    test kl_create-1.0 {
+        Create a keyed list
+    } -body {
+        twapi::kl_create a 1 b 2 c 3
+    } -result {a 1 b 2 c 3}
+
+    test kl_create-1.1 {
+        Create a badly formed keyed list
+    } -body {
+        twapi::kl_create a 1 b 2 c
+    } -result * -match glob -returnCodes error
+
+    test kl_create2-1.0 {
+        Create a keyed list
+    } -body {
+        twapi::kl_create2 {a b c} {1 2 3}
+    } -result {a 1 b 2 c 3}
+
+    test kl_get-1.0 {
+        Get a value from a keyed list (first)
+    } -body {
+        twapi::kl_get [twapi::kl_create a 1 b 2 c 3] a
+    } -result 1
+
+    test kl_get-1.1 {
+        Get a value from a keyed list (last)
+    } -body {
+        twapi::kl_get [twapi::kl_create a 1 b 2 c 3] c
+    } -result 3
+
+    test kl_get-1.2 {
+        Get a value from a keyed list (middle)
+    } -body {
+        twapi::kl_get [twapi::kl_create a 1 b 2 c 3] b
+    } -result 2
+
+    test kl_get-2.0 {
+        Get a non-existent value from a keyed list with default
+    } -body {
+        twapi::kl_get [twapi::kl_create a 1 b 2 c 3] d 42
+    } -result 42
+
+    test kl_get-2.1 {
+        Get a non-existent value from a keyed list
+    } -body {
+        twapi::kl_get [twapi::kl_create a 1 b 2 c 3] d
+    } -result * -match glob -returnCodes error
+    
+    test kl_vget-1.0 {
+        Store a value from a keyed list into a variable
+    } -body {
+        set status [twapi::kl_vget [twapi::kl_create a 1 b 2 c 3] c var]
+        list $status $var
+    } -result {1 3}
+
+    test kl_vget-1.1 {
+        Try to get a non-existing value from a keyed list 
+    } -body {
+        set var unchanged
+        set status [twapi::kl_vget [twapi::kl_create a 1 b 2 c 3] d var]
+        list $status $var
+    } -result {0 unchanged}
+
+    test kl_vget-1.2 {
+        Try to get a non-existing value from a keyed list 
+    } -body {
+        catch {unset var}
+        set status [twapi::kl_vget [twapi::kl_create a 1 b 2 c 3] d var]
+        list $status [info exists var]
+    } -result {0 0}
+
+    test kl_equal-1.0 {
+        Compare empty keyed lists
+    } -body {
+        twapi::kl_equal [twapi::kl_create] [twapi::kl_create2 {} {}]
+    } -result 1
+
+    test kl_equal-1.1 {
+        Compare empty keyed list with non-empty
+    } -body {
+        twapi::kl_equal [twapi::kl_create a 1 b 2] [twapi::kl_create2 {} {}]
+    } -result 0
+
+    test kl_equal-1.2 {
+        Compare keyed list (identical)
+    } -body {
+        twapi::kl_equal [twapi::kl_create a 1 b 2 c 3] [twapi::kl_create2 {a b c} {1 2 3}]
+    } -result 1
+
+    test kl_equal-1.3 {
+        Compare keyed list (out of order)
+    } -body {
+        twapi::kl_equal [twapi::kl_create a 1 c 3 b 2] [twapi::kl_create2 {a b c} {1 2 3}]
+    } -result 1
+
+    test kl_equal-1.4 {
+        Compare keyed list (keys in order, different values)
+    } -body {
+        twapi::kl_equal [twapi::kl_create a 1 c 3 b 2] [twapi::kl_create a 1 b 2 c 4]
+    } -result 0
+
+    test kl_equal-1.5 {
+        Compare keyed list (different lengths)
+    } -body {
+        twapi::kl_equal [twapi::kl_create a 1 b 2 c 3] [twapi::kl_create a 1 b 2]
+    } -result 0
+
+    test kl_fields-1.0 {
+        Get fields in a keyed list
+    } -body {
+        twapi::kl_fields [twapi::kl_create2 {a b c} {1 2 3}]
+    } -result {a b c}
+
+    test kl_flatten-1.0 {
+        Flatten values in a list of keyed lists
+    } -body {
+        twapi::kl_flatten [list [twapi::kl_create a 1 b 2] [twapi::kl_create a 3 b 4]] a
+    } -result {1 3}
+
+    test kl_flatten-1.1 {
+        Flatten values in a list of keyed lists (multiple fields, multiple lists)
+    } -body {
+        twapi::kl_flatten [list [twapi::kl_create a 1 b 2 c 3] [twapi::kl_create a 3 b 4 c 5] [twapi::kl_create a 6 b 7 c 8]] a c
+    } -result {1 3 3 5 6 8}
+
+    test kl_set-1.0 {
+        Set a non-existing value in a keyed list
+    } -body {
+        twapi::kl_equal [twapi::kl_set [twapi::kl_create a 1 b 2] c 3] \
+            [twapi::kl_create a 1 b 2 c 3]
+    } -result 1
+
+    test kl_set-1.1 {
+        Set an existing value in a keyed list
+    } -body {
+        twapi::kl_equal [twapi::kl_set [twapi::kl_create a 1 b 2 c 4] c 3] \
+            [twapi::kl_create a 1 b 2 c 3]
+    } -result 1
+
+    test kl_unset-1.0 {
+        Unset an existing value in a keyed list
+    } -body {
+        twapi::kl_equal [twapi::kl_unset [twapi::kl_create a 1 b 2 c 3] b] \
+            [twapi::kl_create a 1 c 3]
+    } -result 1
+
+    test kl_unset-1.1 {
+        Unset a non-existing value in a keyed list
+    } -body {
+        twapi::kl_equal [twapi::kl_unset [twapi::kl_create a 1 b 2 c 3] d] \
+            [twapi::kl_create a 1 c 3 b 2]
+    } -result 1
+
+    ################################################################
+
+    test debuglog-1.0 {
+        Verify debug log messages
+    } -setup {
+        twapi::debuglog_clear
+    } -body {
+        # Initially debuglog is supposed to be disabled
+        # so to test that, we are not explicitly disabling it.
+        twapi::debuglog "Test message 1"
+        twapi::debuglog_enable
+        twapi::debuglog "Test message 2"
+        twapi::debuglog "Test message 3"
+        twapi::debuglog_disable
+        twapi::debuglog "Test message 4"
+        twapi::debuglog_get
+    } -result {{Test message 2} {Test message 3}}
+
+    ################################################################
+
+    test debuglog_clear-1.0 {
+        Clear debug log messages
+    } -setup {
+        twapi::debuglog_clear
+        twapi::debuglog_enable
+    } -body {
+        twapi::debuglog "Test message 1"
+        twapi::debuglog "Test message 2"
+        list [twapi::debuglog_clear] [llength [twapi::debuglog_get]]
+    } -result {{} 0}
+
+    ################################################################
+
+    test tcltype-1.0 {
+        Test for pure string type
+    } -body {
+        twapi::tcltype "abc"
+    } -result ""
+
+    test tcltype-1.1 {
+        Test for pure string type (numeric)
+    } -body {
+        twapi::tcltype 123
+    } -result ""
+
+    test tcltype-2.0 {
+        Test for  string type
+    } -body {
+        set temp "abc"
+        append temp d;          # Force to explicit string
+        twapi::tcltype $temp
+    } -result string
+
+    test tcltype-3.0 {
+        Test for  list type
+    } -body {
+        twapi::tcltype [list a b]
+    } -result list
+
+    test tcltype-4.0 {
+        Test for  dict type
+    } -body {
+        twapi::tcltype [dict create a b c d]
+    } -result dict
+
+    test tcltype-5.0 {
+        Test for integer type
+    } -body {
+        twapi::tcltype [expr {0+0}]
+    } -result int
+
+    test tcltype-6.0 {
+        Test for wide integer type
+    } -body {
+        twapi::tcltype [expr {0xffffffff+1}]
+    } -result wideInt
+
+    test tcltype-7.0 {
+        Test for double type
+    } -body {
+        twapi::tcltype [expr {1.0+0}]
+    } -result double
+
+    test tcltype-8.0 {
+        Test for boolean type
+    } -body {
+        twapi::tcltype [expr {false}]
+    } -result booleanString
+
+    test tcltype-8.1 {
+        Test for boolean type
+    } -body {
+        twapi::tcltype [expr {true}]
+    } -result booleanString
+
+
+    ################################################################
+
+    test tclcast-1.0 {
+        Test for pure string type -> interpreted as variant
+    } -body {
+        set intval [expr {1+0}]
+        list [twapi::tcltype $intval] [twapi::tcltype [twapi::tclcast "" $intval]]
+    } -result {int {}}
+
+    test tclcast-2.0 {
+        Test for string type
+    } -body {
+        set intval [expr {1+0}]
+        list [twapi::tcltype $intval] [twapi::tcltype [twapi::tclcast string $intval]]
+    } -result {int string}
+
+    test tclcast-3.0 {
+        Test for  list type
+    } -body {
+        twapi::tcltype [twapi::tclcast list "x y z"]
+    } -result list
+
+    test tclcast-4.0 {
+        Test for  dict type
+    } -body {
+        twapi::tcltype [twapi::tclcast dict "m n o p"]
+    } -result dict
+
+    test tclcast-5.0 {
+        Test for integer type
+    } -body {
+        twapi::tcltype [twapi::tclcast int "123"]
+    } -result int
+
+    test tclcast-6.0 {
+        Test for wide integer type
+    } -body {
+        # Note casting a 32 bit int to a wide int will not result
+        # in a wide int - Tcl optimizes it back to an int
+        twapi::tcltype [twapi::tclcast wideInt "0x123456789abcd"]
+    } -result {Bad cast to "wideInt". Must be one of: "" empty null bstr int boolean double string list dict} -returnCodes error
+
+    test tclcast-6.1 {
+        Test for wide integer type from integer
+    } -body {
+        twapi::tcltype [twapi::tclcast wideInt 1]
+    } -result {Bad cast to "wideInt". Must be one of: "" empty null bstr int boolean double string list dict} -returnCodes error
+
+    test tclcast-7.0 {
+        Test for double type
+    } -body {
+        twapi::tcltype [twapi::tclcast double 2.5]
+    } -result double
+
+    test tclcast-7.1 {
+        Test for double type from integer
+    } -body {
+        # Make sure an integer also shows up as double. Bug pre-4.0b27
+        twapi::tcltype [twapi::tclcast double 1]
+    } -result double
+
+    test tclcast-7.1 {
+        Test for double type from integer
+    } -body {
+        # Make sure an wide integer also shows up as double. Bug pre-4.0b27
+        twapi::tcltype [twapi::tclcast double 0x123456789abcd]
+    } -result double
+
+    test tclcast-8.0 {
+        Test for boolean type
+    } -body {
+        twapi::tcltype [twapi::tclcast boolean "true"]
+    } -result booleanString
+
+    test tclcast-8.1 {
+        Test for boolean type
+    } -body {
+        twapi::tcltype [twapi::tclcast boolean "false"]
+    } -result booleanString
+
+    test tclcast-8.2 {
+        Test for boolean type
+    } -body {
+        twapi::tcltype [twapi::tclcast boolean [expr {0+1}]]
+    } -result booleanString
+
+    test tclcast-8.3 {
+        Test for boolean type
+    } -body {
+        twapi::tcltype [twapi::tclcast boolean [expr {0+0}]]
+    } -result booleanString
+
+    test tclcast-9.0 {
+        Test for bstr type
+    } -body {
+        set intval [expr {1+0}]
+        list [twapi::tcltype $intval] [twapi::tcltype [twapi::tclcast bstr $intval]]
+    } -result {int bstr}
+    ################################################################
+
+    test IsEqualGUID-1.0 {
+        Verify two UUIDs are equal
+    } -body {
+        set uuid [twapi::new_uuid]
+        twapi::IsEqualGUID $uuid $uuid
+    } -result 1
+
+    test IsEqualGUID-1.1 {
+        Verify two GUIDs are equal
+    } -body {
+        set guid "{[twapi::new_uuid]}"
+        twapi::IsEqualGUID $guid $guid
+    } -result 1
+
+    test IsEqualGUID-1.2 {
+        Verify a UUID and GUID are equal
+    } -body {
+        set uuid [twapi::new_uuid]
+        set guid "{$uuid}"
+        twapi::IsEqualGUID $uuid $guid
+    } -result 1
+
+    test IsEqualGUID-1.3 {
+        Verify case insensitivity in GUIDs
+    } -body {
+        set guid "{[twapi::new_uuid]}"
+        twapi::IsEqualGUID [string tolower $guid] [string toupper $guid]
+    } -result 1
+
+    test IsEqualGUID-1.4 {
+        Verify case insensitivity in UUIDs
+    } -body {
+        set uuid [twapi::new_uuid]
+        twapi::IsEqualGUID [string tolower $uuid] [string toupper $uuid]
+    } -result 1
+
+    test IsEqualGUID-2.0 {
+        Verify mismatched UUIDs
+    } -body {
+        set uuid [twapi::new_uuid]
+        twapi::IsEqualGUID "[string range $uuid 0 end-1]0" "[string range $uuid 0 end-1]1"
+    } -result 0
+
+    test IsEqualGUID-2.1 {
+        Verify mismatched GUIDs
+    } -body {
+        set uuid [twapi::new_uuid]
+        twapi::IsEqualGUID "{[string range $uuid 0 end-1]0}" "{[string range $uuid 0 end-1]1}"
+    } -result 0
+
+    ################################################################
+
+    test trap-1.0 {
+        Verify script with no errors and no onerror and finally clauses
+    } -setup {
+        catch {unset x}
+    } -body {
+        twapi::trap {set x 1}
+        set x
+    } -result 1
+
+    test trap-1.1 {
+        Verify script with errors and no onerror and finally clauses
+    } -body {
+        twapi::trap {set nosuchvar}
+    } -returnCodes error -result $nosuchvar_error
+
+    ###
+
+    test trap-2.0 {
+        Verify script with no errors and no onerror but finally clause
+    } -setup {
+        catch {unset x}
+        catch {unset y}
+    } -body {
+        expr {
+              [twapi::trap {set x 1} finally {set y 2}] == 1 &&
+              $y == 2 &&
+              $x == 1
+          }
+    } -result 1
+
+    ###
+
+    test trap-2.1 {
+        Verify script with errors and no onerror clause but with finally clause
+    } -setup {
+        catch {unset x}
+        catch {unset y}
+    } -body {
+        set status [catch {
+            twapi::trap {set nosuchvar} finally {set y 5}
+        } msg]
+        expr {
+              $status == 1 &&
+              $msg == $nosuchvar_error &&
+              $y == 5
+          }
+    } -result 1
+
+    ###
+
+    test trap-3.0 {
+        Verify script with errors and matching onerror clause
+    } -body {
+        twapi::trap {
+            error "Error message" "This is errorinfo" {TEST 5}
+        } onerror {TEST 5} {
+            set trapopts [twapi::trapoptions]
+            expr {
+                  $::errorCode eq [dict get $trapopts -errorcode] &&
+                  [lindex $::errorCode 0] == "TEST" &&
+                  [lindex $::errorCode 1] == 5 &&
+                  [twapi::trapresult] == "Error message" &&
+                  $::errorInfo == "This is errorinfo"
+              }
+        }
+    } -result 1
+
+    ###
+
+    test trap-3.1 {
+        Verify script with errors and no match on onerror facility
+    } -body {
+        twapi::trap {
+            error "Error message" "" {TEST 5}
+        } onerror {XXX 5} {
+        }
+    } -result "Error message" -returnCodes error
+
+    ###
+
+    test trap-3.2 {
+        Verify script with errors and no match on onerror code
+    } -body {
+        twapi::trap {
+            error "Error message" "" {TEST 5}
+        } onerror {TEST 6} {
+        }
+    } -result "Error message" -returnCodes error
+
+    ###
+
+    test trap-3.3 {
+        Verify script with errors and default onerror clause
+    } -body {
+        twapi::trap {
+            error "Error message" "This is errorinfo" {TEST 5}
+        } onerror {XXX 6} {
+            set x 6
+        } onerror {} {
+            expr {
+                  $::errorCode eq [dict get [twapi::trapoptions] -errorcode] &&
+                  [lindex $::errorCode 0] == "TEST" &&
+                  [lindex $::errorCode 1] == 5 &&
+                  [twapi::trapresult] == "Error message" &&
+                  $::errorInfo == "This is errorinfo"
+              }
+        }
+    } -result 1
+
+    ###
+
+    test trap-3.4 {
+        Verify multiple onerror clauses
+    } -setup {
+        catch {unset x}
+    } -body {
+        twapi::trap {
+            error "Error message" "" {TEST 5}
+        } onerror {TEST 6} {
+            set x "wrong match"
+        } onerror {TEST 5} {
+            set x "correct match"
+        }
+    } -result "correct match"
+
+    ###
+
+    test trap-3.5 {
+        Verify sequencing of onerror clauses
+    } -setup {
+        catch {unset x}
+        catch {unset y}
+    } -body {
+        twapi::trap {
+            error "Error message" "" {TEST 5}
+        } onerror {} {
+            set x "correct order"
+        } onerror {TEST 5} {
+            set x "wrong order"
+        }
+    } -result "correct order"
+
+    ###
+
+    test trap-3.6 {
+        Verify script with errors and matching integer format onerror clause
+    } -body {
+        twapi::trap {
+            error "Error message" "This is errorinfo" {TEST 20}
+        } onerror {TEST 0x14} {
+            expr {
+                  $::errorCode eq [dict get [twapi::trapoptions] -errorcode] &&
+                  [lindex $::errorCode 0] == "TEST" &&
+                  [lindex $::errorCode 1] == 20 &&
+                  [twapi::trapresult] == "Error message" &&
+                  $::errorInfo == "This is errorinfo"
+              }
+        }
+    } -result 1
+
+    ###
+
+    test trap-3.7 {
+        Verify script with errors and matching onerror clause only on facility
+    } -body {
+        twapi::trap {
+            error "Error message" "This is errorinfo" {TEST 5}
+        } onerror {TEST} {
+            expr {
+                  $::errorCode eq [dict get [twapi::trapoptions] -errorcode] &&
+                  [lindex $::errorCode 0] == "TEST" &&
+                  [lindex $::errorCode 1] == 5 &&
+                  [twapi::trapresult] == "Error message" &&
+                  $::errorInfo == "This is errorinfo"
+              }
+        }
+    } -result 1
+
+    ###
+
+    test trap-4.0 {
+        Verify trap with no errors with both onerror and finally clauses
+    } -setup {
+        catch {unset x}
+    } -body {
+        set result [twapi::trap {
+            set x normal
+        } onerror {} {
+            set x "correct order"
+        } finally {
+            set  y final
+        }]
+        expr {$result == "normal" && $x == "normal" && $y == "final"}
+    } -result 1
+
+    ###
+
+    test trap-4.1 {
+        Verify trap with errors with matching onerror and finally clauses
+    } -setup {
+        catch {unset x}
+        catch {unset y}
+    } -body {
+        set result [twapi::trap {
+            error "Error message" "This is errorinfo" {TEST 5}
+        } onerror {} {
+            expr {
+                  $::errorCode eq [dict get [twapi::trapoptions] -errorcode] &&
+                  [lindex $::errorCode 0] == "TEST" &&
+                  [lindex $::errorCode 1] == 5 &&
+                  [twapi::trapresult] == "Error message" &&
+                  $::errorInfo == "This is errorinfo"
+              }
+        } finally {
+            set  y final
+        }]
+        expr {$result == 1 && $y == "final"}
+    } -result 1
+
+    ###
+
+    test trap-4.2 {
+        Verify trap with errors with nonmatching onerror and finally clauses
+    } -setup {
+        catch {unset x}
+        catch {unset y}
+    } -body {
+        set result [catch {
+            twapi::trap {
+                error "Error message" "This is errorinfo" {TEST 5}
+            } onerror {XXX} {
+                expr {
+                      $::errorCode eq [dict get [twapi::trapoptions] -errorcode] &&
+                      [lindex $::errorCode 0] == "TEST" &&
+                      [lindex $::errorCode 1] == 5 &&
+                      [twapi::trapresult] == "Error message" &&
+                      $::errorInfo == "This is errorinfo"
+                  }
+            } finally {
+                set  y final
+            }
+        }]
+        expr {$result == 1 && $y == "final"}
+    } -result 1
+
+    ###
+
+    test trap-4.3 {
+        Verify finally clause position can be anywhere
+    } -setup {
+        catch {unset x}
+        catch {unset y}
+    } -body {
+        set result [twapi::trap {
+            error "Error message" "This is errorinfo" {TEST 5}
+        } onerror {XXX} {
+            set y foo
+        } finally {
+            set  y final
+        } onerror {} {
+            expr {
+                  $::errorCode eq [dict get [twapi::trapoptions] -errorcode] &&
+                  [lindex $::errorCode 0] == "TEST" &&
+                  [lindex $::errorCode 1] == 5 &&
+                  [twapi::trapresult] == "Error message" &&
+                  $::errorInfo == "This is errorinfo"
+              }
+        }]
+        expr {$result == 1 && $y == "final"}
+    } -result 1
+
+    test trap-5.0 {
+        Verify rethrow
+    } -body {
+        catch {
+            twapi::trap {
+                error "This is an error" "" [list ERROR RETHROW]
+            } onerror {} {
+                catch {error "Another error"}
+                twapi::rethrow
+            }
+        } msg options
+        list $msg [dict get $options -errorcode]
+    } -result {{This is an error} {ERROR RETHROW}}
+
+    test trap-5.1 {
+        Verify nested rethrow
+    } -body {
+        catch {
+            twapi::trap {
+                error "This is an error" "" [list ERROR RETHROW]
+            } onerror {} {
+                twapi::trap {
+                    error "Nested error" "" [list NESTED RETHROW]
+                } onerror {} {
+                    catch {error "another error"}
+                    twapi::rethrow
+                }
+            }
+        } msg options
+        list $msg [dict get $options -errorcode]
+    } -result {{Nested error} {NESTED RETHROW}}
+
+    test trap-5.2 {
+        Verify rethrow fails outside trap
+    } -body {
+        twapi::rethrow
+    } -returnCodes error -result "Command cannot be called in this scope."
+
+
+    ################################################################
+
+    if {$::tcl_platform(machine) eq "amd64"} {
+        set rctest_dll [file join [testdir] "rctest64.dll"]
+    } else {
+        set rctest_dll [file join [testdir] "rctest.dll"]
+    }
+
+    test load_library-1.0 {
+        Load a library
+    } -body {
+        set libh [twapi::load_library $rctest_dll]
+    } -cleanup {
+        twapi::free_library $libh
+    } -result "* HANDLE" -match glob
+
+    test load_library-1.1 {
+        Load a library as a data file
+    } -body {
+        set libh [twapi::load_library $rctest_dll -datafile]
+    } -cleanup {
+        twapi::free_library $libh
+    } -result "* HANDLE" -match glob
+
+    test load_library-1.2 {
+        Load a library without resolving references
+    } -body {
+        set libh [twapi::load_library $rctest_dll -dontresolverefs]
+    } -cleanup {
+        twapi::free_library $libh
+    } -result "* HANDLE" -match glob
+        
+    ################################################################
+
+    test free_library-1.0 {
+        Free a library
+    } -body {
+        twapi::free_library [twapi::load_library $rctest_dll]
+    } -result ""
+
+    ################################################################
+
+    # NOTE: BELOW ARE ONLY BASIC EVENTLOG WRITING TESTS. THEY
+    # do not check if events are correctly written because
+    # there is no eay way to do that with WMI and we do not
+    # want to load twapi_eventlog in the base tests. However
+    # the eventlog.test file does test the same commands more
+    # thoroughly.
+
+    test base-eventlog_log-1.0 {
+        Log a message to the default log
+    } -body {
+        twapi::eventlog_log "TWAPI test message"
+    } -result ""
+
+    test base-eventlog_log-1.1 {
+        Log a message to the application log
+    } -body {
+        twapi::eventlog_log "TWAPI Application log test message" -source application
+    } -result ""
+
+    test base-eventlog_log-1.2 {
+        Log a message to the system log
+    } -constraints {
+        systemmodificationok
+    } -body {
+        twapi::eventlog_log "TWAPI System log test message" -source system
+    } -result ""
+    
+    set testnum 0
+    foreach type {success error warning information} {
+        test base-eventlog_log-2.[incr testnum] "Log a message of type $type to the application log" -body {
+            twapi::eventlog_log "TWAPI log $type message" -type $type -source application
+        } -result ""
+    }
+
+    foreach type {success error warning information} {
+        test base-eventlog_log-2.[incr testnum] "Log a message of type $type to the system log" -constraints {
+            systemmodificationok
+        } -body {
+            twapi::eventlog_log "TWAPI log $type message" -type $type -source system
+        } -result ""
+    }
+
+    ################################################################
+
+    test base-eventlog_close_write_handle-1.0 {
+        Close a write event log handle
+    } -constraints {
+        nt
+    } -body {
+        set hevl [twapi::eventlog_open -write]
+        twapi::eventlog_close $hevl
+        # Should generate error when closing
+        catch {twapi::eventlog_close $hevl}
+    } -result 1
+
+    ################################################################
+
+    set testnum 0
+    foreach type {success error warning information} {
+        test base-eventlog_write-1.[incr testnum] "Write a message of type $type to the application log" -body {
+            set hevl [twapi::eventlog_open -source application -write]
+            twapi::eventlog_write $hevl 1 -params [list "TWAPI log $type message"] -type $type
+            twapi::eventlog_close $hevl
+        } -result ""
+    }
+
+    foreach type {success error warning information} {
+        test base-eventlog_write-1.[incr testnum] "Write a message of type $type to the system log" -constraints {
+            systemmodificationok
+        } -body {
+            set hevl [twapi::eventlog_open -source system -write]
+            twapi::eventlog_write $hevl 1 -params [list "TWAPI log $type message"] -type $type
+            twapi::eventlog_close $hevl
+        } -result ""
+    }
+
+    test base-eventlog_write-2.0 {
+        Verify -loguser option when writing to event log
+    } -body {
+        set hevl [twapi::eventlog_open -write]
+        twapi::eventlog_write $hevl 1 -params [list "TWAPI log message with SID"] -loguser
+        twapi::eventlog_close $hevl
+    } -result ""
+
+    test base-eventlog_write-3.0 {
+        Verify -data option with text when writing to event log
+    } -body {
+        set hevl [twapi::eventlog_open -write]
+        twapi::eventlog_write $hevl 1 -params [list "TWAPI log message with data"] -data "SOME JUNK DATA"
+        twapi::eventlog_close $hevl
+    } -result ""
+
+    test base-eventlog_write-3.1 {
+        Verify -data option with binary data when writing to event log
+    } -body {
+        set hevl [twapi::eventlog_open -write]
+        twapi::eventlog_write $hevl 1 -params [list "TWAPI log message with data"] -data [binary format h* abcdef]
+        twapi::eventlog_close $hevl
+    } -result ""
+
+    ################################################################
+
+    test pointer_null?-1.0 {
+        Verify NULL is treated as null pointer
+    } -body {
+        twapi::pointer_null? NULL
+    } -result 1
+
+    test pointer_null?-1.1 {
+        Verify NULL is treated as null pointer when type is specified
+    } -body {
+        twapi::pointer_null? NULL SOMETYPE
+    } -result 1
+
+    test pointer_null?-2.0 {
+        Verify 0 is treated as null pointer
+    } -body {
+        twapi::pointer_null? 0
+    } -result 1
+
+    test pointer_null?-2.1 {
+        Verify 0 is treated as null pointer when a type is specified
+    } -body {
+        twapi::pointer_null? 0 SOMETYPE
+    } -result 1
+
+    test pointer_null?-3.0 {
+        Verify a typed NULL pointer specified as a list
+    } -body {
+        twapi::pointer_null? [list 0 SOMETYPE] SOMETYPE
+    } -result 1
+
+    test pointer_null?-3.1 {
+        Verify a typed non-NULL pointer specified as a list
+    } -body {
+        twapi::pointer_null? [list 1 SOMETYPE] SOMETYPE
+    } -result 0
+
+    test pointer_null?-3.2 {
+        Verify a typed non-NULL pointer specified as a list
+    } -body {
+        catch {twapi::pointer_null? [list 0 SOMETYPE] SOMEOTHERTYPE}
+    } -result 1
+
+    test pointer_null?-3.3 {
+        Verify typed NULL pointer passed as an opaque type
+    } -body {
+        set ptr [twapi::pointer_from_address 0 SOMETYPE]
+        list [twapi::tcltype $ptr] [twapi::pointer_null? $ptr SOMETYPE]
+    } -result {TwapiOpaque 1}
+
+    test pointer_null?-4.0 {
+        Verify a bogus non-pointer generates an error
+    } -body {
+        catch {twapi::pointer_null? [list abc SOMETYPE] SOMEOTHERTYPE}
+    } -result 1
+
+    test pointer_null?-4.1 {
+        Verify a bogus non-pointer generates an error
+    } -body {
+        catch {twapi::pointer_null? abc}
+    } -result 1
+
+    ################################################################
+
+    test pointer?-1.0 {
+        Verify NULL pointer returns 1
+    } -body {
+        twapi::pointer? NULL
+    } -result 1
+
+    test pointer?-1.1 {
+        Verify 0 pointer returns 1
+    } -body {
+        twapi::pointer? 0
+    } -result 1
+
+    test pointer?-2.0 {
+        Verify non-pointer returns 0
+    } -body {
+        twapi::pointer? abc
+    } -result 0
+
+    test pointer?-2.1 {
+        Verify integer non-pointer returns 0
+    } -body {
+        twapi::pointer? 1
+    } -result 0
+
+    test pointer?-2.2 {
+        Verify typed non-pointer returns 0
+    } -body {
+        twapi::pointer? [list abc FOO]
+    } -result 0
+
+    test pointer?-3.0 {
+        Verify typed pointer passed as an opaque type
+    } -body {
+        set ptr [twapi::pointer_from_address 1 SOMETYPE]
+        list [twapi::tcltype $ptr] [twapi::pointer? $ptr SOMETYPE]
+    } -result {TwapiOpaque 1}
+
+    test pointer?-3.1 {
+        Verify a pointer of the wrong type
+    } -body {
+        set ptr [twapi::pointer_from_address 1 SOMETYPE]
+        list [twapi::tcltype $ptr] [twapi::pointer? $ptr SOMEOTHERTYPE]
+    } -result {TwapiOpaque 0}
+
+    test pointer?-3.2 {
+        Verify typed pointer passed as a list (1)
+    } -body {
+        twapi::pointer? [list 0x80000000 SomeType] SomeType
+    } -result 1
+
+    test pointer?-3.2 {
+        Verify typed pointer passed as a list (0)
+    } -body {
+        twapi::pointer? [list 0x80000000 SomeType] SomeOtherType
+    } -result 0
+
+    ################################################################
+
+    test pointer_equal?-1.0 {
+        Verify two pointers are equal
+    } -body {
+        twapi::pointer_equal? [twapi::pointer_from_address 1000] [twapi::pointer_from_address 1000]
+    } -result 1
+
+    test pointer_equal?-1.1 {
+        Verify two typed pointers are equal
+    } -body {
+        twapi::pointer_equal? [twapi::pointer_from_address 1000 SOMETYPE] [twapi::pointer_from_address 1000 SOMETYPE]
+    } -result 1
+
+    test pointer_equal?-1.2 {
+        Verify NULL pointers are equal
+    } -body {
+        twapi::pointer_equal? NULL [twapi::pointer_from_address 0 SOMETYPE]
+    } -result 1
+
+    test pointer_equal?-1.3 {
+        Verify 0 pointers are equal
+    } -body {
+        twapi::pointer_equal? NULL 0
+    } -result 1
+
+    test pointer_equal?-1.4 {
+        Verify two untyped pointers are equal
+    } -body {
+        twapi::pointer_equal? [twapi::pointer_from_address 1000 SOMETYPE] [twapi::pointer_from_address 1000 SOMEOTHERTYPE]
+    } -result 1
+
+    test pointer_equal?-1.5 {
+        Verify pointer and constructed pointer are equal
+    } -body {
+        twapi::pointer_equal? [twapi::pointer_from_address 1000 SOMETYPE] [list  1000 SOMEOTHERTYPE]
+    } -result 1
+
+    ################################################################
+
+    test pointer_type-1.0 {
+        Get the type of untyped pointer
+    } -body {
+        twapi::pointer_type [twapi::pointer_from_address 1000]
+    } -result ""
+
+    test pointer_type-1.1 {
+        Get the type of typed pointer
+    } -body {
+        twapi::pointer_type [twapi::pointer_from_address 1000 SOMETYPE]
+    } -result SOMETYPE
+
+    test pointer_type-1.2 {
+        Get the type of pointer list literal
+    } -body {
+        twapi::pointer_type [list 2000 SOMETYPE]
+    } -result SOMETYPE
+
+    test pointer_type-2.0 {
+        Get the type of pointer of non-pointer
+    } -body {
+        catch {twapi::pointer_type 500}
+    } -result 1
+
+    ################################################################
+
+    test pointer_registered?-1.0 {
+        Verify a registered pointer
+    } -setup {
+        set p [twapi::malloc 10]
+    } -body {
+        twapi::pointer_registered? $p
+    } -cleanup {
+        twapi::free $p
+    } -result 1
+
+    test pointer_registered?-1.1 {
+        Verify a unregistered pointer
+    } -setup {
+        set p [twapi::pointer_from_address 1000 SOMETYPE]
+    } -body {
+        twapi::pointer_registered? $p
+    } -result 0
+
+    test pointer_registered?-1.2 {
+        Verify a freed pointer
+    } -setup {
+        set p [twapi::malloc 10]
+    } -body {
+        list [twapi::pointer_registered? $p] [twapi::free $p] [twapi::pointer_registered? $p]
+    } -result {1 {} 0}
+
+    ################################################################
+
+    test pointer_to_address-1.0 {
+        Null pointer to address
+    } -body {
+        twapi::pointer_to_address NULL
+    } -result 0
+
+    test pointer_to_address-1.1 {
+        Null pointer to address
+    } -body {
+        twapi::pointer_to_address 0
+    } -result 0
+
+    test pointer_to_address-2.0 {
+        pointer to address
+    } -body {
+        twapi::pointer_to_address {0x1000000 HANDLE}
+    } -result 16777216
+
+    test pointer_to_address-2.1 {
+        pointer to address
+    } -body {
+        twapi::pointer_to_address {100 void*}
+    } -result 100
+
+    test pointer_to_address-2.2 {
+        pointer to address
+    } -body {
+        twapi::pointer_to_address {0 void*}
+    } -result 0
+
+    test pointer_to_address-2.2 {
+        pointer to address
+    } -body {
+        twapi::pointer_to_address {100 {void *}}
+    } -result 100
+
+    test pointer_to_address-2.4 {
+        Null pointer to address
+    } -body {
+        twapi::pointer_to_address {0 {}}
+    } -result 0
+
+    test pointer_to_address-3.0 {
+        pointer to address
+    } -body {
+        twapi::pointer_to_address {HANDLE 0x1000000}
+    } -result "Invalid pointer or opaque value 'HANDLE'." -returnCodes error
+
+    test pointer_to_address-3.1 {
+        pointer to address
+    } -body {
+        twapi::pointer_to_address 1
+    } -result "Invalid pointer or opaque value '1'." -returnCodes error
+
+    test pointer_to_address-3.2 {
+        pointer to address
+    } -body {
+        twapi::pointer_to_address {100 void *}
+    } -result "Invalid pointer or opaque value '100 void *'." -returnCodes error
+
+    ################################################################
+
+    test pointer_from_address-1.0 {
+        pointer from address
+    } -body {
+        twapi::pointer_from_address 0
+    } -result {0 {}}
+
+    test pointer_from_address-1.1 {
+        pointer from address
+    } -body {
+        twapi::pointer_from_address 100
+    } -result {100 {}}
+
+    test pointer_from_address-2.0 {
+        pointer from address
+    } -body {
+        twapi::pointer_from_address 0 void*
+    } -result {0 void*}
+
+    test pointer_from_address-2.1 {
+        pointer from address
+    } -body {
+        twapi::pointer_from_address 100 HANDLE
+    } -result {100 HANDLE}
+
+    test pointer_from_address-2.2 {
+        pointer from address
+    } -body {
+        twapi::pointer_from_address 100 {void *}
+    } -result {100 {void *}}
+
+    test pointer_from_address-3.0 {
+        pointer from address
+    } -body {
+        twapi::pointer_from_address void* 100
+    } -returnCodes error -result {expected integer but got "void*"}
+
+    test pointer_from_address-3.1 {
+        pointer from address
+    } -body {
+        twapi::pointer_from_address NULL
+    } -returnCodes error -result {expected integer but got "NULL"}
+
+
+    ################################################################
+
+    test random_bytes-1.0 {
+        Get 1 random byte
+    } -body {
+        string length [twapi::random_bytes 1]
+    } -result 1
+
+    test random_bytes-1.1 {
+        Get 4 random bytes
+    } -body {
+        string length [twapi::random_bytes 4]
+    } -result 4
+
+    test random_bytes-2.0 {
+        Check randomness
+    } -body {
+        # Need a better way to check randomness
+        string equal [twapi::random_bytes 8] [twapi::random_bytes 8]
+    } -result 0
+
+    ################################################################
+
+    test hex32-1.0 {
+        hex32 0
+    } -body {
+        twapi::hex32 0
+    } -result 0x00000000
+
+    test hex32-1.1 {
+        hex32 1
+    } -body {
+        twapi::hex32 1
+    } -result 0x00000001
+
+    test hex32-1.2 {
+        hex32 -1
+    } -body {
+        twapi::hex32 -1
+    } -result 0xffffffff
+
+    test hex32-1.3 {
+        hex32 0XABCDEF
+    } -body {
+        twapi::hex32 0xABCDEF
+    } -result 0x00abcdef
+
+    test hex32-1.4 {
+        hex32 0XABCDEF
+    } -body {
+        twapi::hex32 0xABCDEF00
+    } -result 0xabcdef00
+
+    test hex32-2.0 {
+        hex32 overflow
+    } -body {
+        set x 0xffffffff
+        twapi::hex32 [incr x]
+    } -result {integer value too large to represent} -returnCodes error
+
+    test hex64-1.0 {
+        hex64 0
+    } -body {
+        twapi::hex64 0
+    } -result 0x0000000000000000
+
+    test hex64-1.1 {
+        hex64 1
+    } -body {
+        twapi::hex64 1
+    } -result 0x0000000000000001
+
+    test hex64-1.2 {
+        hex64 -1
+    } -body {
+        twapi::hex64 -1
+    } -result 0xffffffffffffffff
+
+    test hex64-1.3 {
+        hex64 0XABCDEF
+    } -body {
+        twapi::hex64 0xABCDEF
+    } -result 0x0000000000abcdef
+
+    test hex64-1.4 {
+        hex64 0XABCDEF
+    } -body {
+        twapi::hex64 0xABCDEF00
+    } -result 0x00000000abcdef00
+
+    test hex64-2.0 {
+        hex64 
+    } -body {
+        set x 0xffffffff
+        twapi::hex64 $x
+    } -result 0x00000000ffffffff
+
+    test hex64-2.1 {
+        hex64 
+    } -body {
+        twapi::hex64 0xffffffff00000000
+    } -result 0xffffffff00000000
+
+    test hex64-2.2 {
+        hex64 
+    } -body {
+        set x 0xffffffff
+        twapi::hex64 [incr x]
+    } -result 0x0000000100000000
+
+    test hex64-2.3 {
+        hex64 
+    } -body {
+        twapi::hex64 0x0123456789abcdef
+    } -result 0x0123456789abcdef
+
+    test hex64-3.0 {
+        hex64 
+    } -body {
+        set x 0xffffffffffffffff
+        twapi::hex64 [incr x]
+    } -result {integer value too large to represent} -returnCodes error
+
+    ################################################################
+
+    test record-1.0 {
+        record basic test
+    } -body {
+        set r [uplevel #0 [list twapi::record reccmd {a b c}]]
+    } -cleanup {
+        rename $r {}
+    } -result ::reccmd
+
+    test record-1.1 {
+        record basic test (unnamed)
+    } -body {
+        set r [uplevel #0 [list twapi::record {a b c}]]
+    } -cleanup {
+        rename $r {}
+    } -result ::record* -match glob
+
+    test record-1.2 {
+        record basic test namespace
+    } -body {
+        set r [twapi::record reccmd {a b c}]
+    } -cleanup {
+        rename $r {}
+    } -result ::twapi::base::test::reccmd
+
+    test record-1.3 {
+        record basic test (unnamed)
+    } -body {
+        set r [twapi::record {a b c}]
+    } -cleanup {
+        rename $r {}
+    } -result ::twapi::base::test::record* -match glob
+
+    test record-1.4 {
+        record basic test namespace
+    } -body {
+        set r [twapi::record ::reccmd {a b c} ]
+    } -cleanup {
+        rename $r {}
+    } -result ::reccmd
+
+    test record-1.5 {
+        record basic test namespace empty definition
+    } -body {
+        twapi::record reccmd {}
+    } -returnCodes error -result "empty record definition"
+
+    test record-2.0 {
+        Record get first field
+    } -setup {
+        set r [twapi::record {a b c}]
+    } -body {
+        $r a {1 2 3}
+    } -cleanup {
+        rename $r {}
+    } -result 1
+
+    test record-2.1 {
+        Record get last field
+    } -setup {
+        set r [twapi::record {a b c}]
+    } -body {
+        $r c {1 2 3}
+    } -cleanup {
+        rename $r {}
+    } -result 3
+
+    test record-2.2 {
+        Record get non-existing field
+    } -setup {
+        set r [twapi::record {a b c}]
+    } -body {
+        $r d {1 2 3}
+    } -cleanup {
+        rename $r {}
+    } -returnCodes error -result "Invalid enum \"d\""
+
+    test record-2.3 {
+        Record get field from truncated record
+    } -setup {
+        set r [twapi::record {a b c}]
+    } -body {
+        $r b {1 2}
+    } -cleanup {
+        rename $r {}
+    } -result 2
+
+    test record-2.4 {
+        Record get field from truncated record (fail)
+    } -setup {
+        set r [twapi::record {a b c}]
+    } -body {
+        $r c {1 2}
+    } -cleanup {
+        rename $r {}
+    } -returnCodes error -result "too few values in record*" -match glob
+
+    test record-2.5 {
+        Record get field from empty record (fail)
+    } -setup {
+        set r [twapi::record {a b c}]
+    } -body {
+        $r a {}
+    } -cleanup {
+        rename $r {}
+    } -returnCodes error -result "too few values in record*" -match glob
+
+    test record-3.0 {
+        Record get first field
+    } -setup {
+        set r [twapi::record {a b c}]
+    } -body {
+        $r get {1 2 3} a
+    } -cleanup {
+        rename $r {}
+    } -result 1
+
+    test record-3.1 {
+        Record get last field
+    } -setup {
+        set r [twapi::record {a b c}]
+    } -body {
+        $r get {1 2 3} c
+    } -cleanup {
+        rename $r {}
+    } -result 3
+
+    test record-3.2 {
+        Record get non-existing field
+    } -setup {
+        set r [twapi::record {a b c}]
+    } -body {
+        $r get {1 2 3} d
+    } -cleanup {
+        rename $r {}
+    } -returnCodes error -result "Invalid enum \"d\""
+
+    test record-3.3 {
+        Record get field from truncated record
+    } -setup {
+        set r [twapi::record {a b c}]
+    } -body {
+        $r get {1 2} b
+    } -cleanup {
+        rename $r {}
+    } -result 2
+
+    test record-3.4 {
+        Record get field from truncated record (fail)
+    } -setup {
+        set r [twapi::record {a b c}]
+    } -body {
+        $r get {1 2} c
+    } -cleanup {
+        rename $r {}
+    } -returnCodes error -result "too few values in record*" -match glob
+
+    test record-3.5 {
+        Record get field from empty record (fail)
+    } -setup {
+        set r [twapi::record {a b c}]
+    } -body {
+        $r get {} a
+    } -cleanup {
+        rename $r {}
+    } -returnCodes error -result "too few values in record*" -match glob
+
+
+    test record-4.0 {
+        Record get definition
+    } -setup {
+        set r [twapi::record {a b c}]
+    } -body {
+        $r
+    } -cleanup {
+        rename $r {}
+    } -result {a b c}
+
+    test record-5.0 {
+        Record set first field
+    } -setup {
+        set r [twapi::record {a b c}]
+    } -body {
+        $r set {1 2 3} a 4
+    } -cleanup {
+        rename $r {}
+    } -result {4 2 3}
+
+    test record-5.1 {
+        Record set last field
+    } -setup {
+        set r [twapi::record {a b c}]
+    } -body {
+        $r set {1 2 3} c 0
+    } -cleanup {
+        rename $r {}
+    } -result {1 2 0}
+
+    test record-5.2 {
+        Record set non-existing field
+    } -setup {
+        set r [twapi::record {a b c}]
+    } -body {
+        $r set {1 2 3} d 4
+    } -cleanup {
+        rename $r {}
+    } -returnCodes error -result "Invalid enum \"d\""
+
+    test record-5.3 {
+        Record set field in truncated record
+    } -setup {
+        set r [twapi::record {a b c}]
+    } -body {
+        $r set {1 2} b 0
+    } -cleanup {
+        rename $r {}
+    } -result {1 0}
+
+    test record-5.4 {
+        Record set field in truncated record (fail)
+    } -setup {
+        set r [twapi::record {a b c}]
+    } -body {
+        $r set {1 2} c 4
+    } -cleanup {
+        rename $r {}
+    } -returnCodes error -result "too few values in record"
+
+    test record-6.0 {
+        record with one arg
+    } -setup {
+        set r [twapi::record {a b c}]
+    } -body {
+        $r {1 2 3}
+    } -cleanup {
+        rename $r {}
+    } -result {a 1 b 2 c 3}
+
+    test record-6.1 {
+        record with one truncated arg
+    } -setup {
+        set r [twapi::record {a b c}]
+    } -body {
+        $r {1 2}
+    } -cleanup {
+        rename $r {}
+    } -result "Number of field values not equal to number of fields" -returnCodes error
+
+    test record-6.2 {
+        record with one longer arg
+    } -setup {
+        set r [twapi::record {a b c}]
+    } -body {
+        $r {1 2 3 4}
+    } -cleanup {
+        rename $r {}
+    } -result "Number of field values not equal to number of fields" -returnCodes error
+
+    test record-7.0 {
+        Record select first field
+    } -setup {
+        set r [twapi::record {a b c}]
+    } -body {
+        $r select {{0 1} 2 3} a
+    } -cleanup {
+        rename $r {}
+    } -result {{0 1}}
+
+    test record-7.1 {
+        Record select last field
+    } -setup {
+        set r [twapi::record {a b c}]
+    } -body {
+        $r select {1 2 {3 4}} c
+    } -cleanup {
+        rename $r {}
+    } -result {{3 4}}
+
+    test record-7.2 {
+        Record select all fields
+    } -setup {
+        set r [twapi::record {a b c}]
+    } -body {
+        $r select {{0 1} 2 {3 4}} {a b c}
+    } -cleanup {
+        rename $r {}
+    } -result {{0 1} 2 {3 4}}
+
+    test record-7.3 {
+        Record select all fields in reverse order
+    } -setup {
+        set r [twapi::record {a b c}]
+    } -body {
+        $r select {{0 1} 2 {3 4}} {c b a}
+    } -cleanup {
+        rename $r {}
+    } -result {{3 4} 2 {0 1}}
+
+    test record-7.4 {
+        Record select subset of fields
+    } -setup {
+        set r [twapi::record {a b c}]
+    } -body {
+        $r select {{0 1} 2 {3 4}} {c a}
+    } -cleanup {
+        rename $r {}
+    } -result {{3 4} {0 1}}
+
+    test record-7.5 {
+        Record select non-existing field
+    } -setup {
+        set r [twapi::record {a b c}]
+    } -body {
+        $r select {1 2 3} {a d}
+    } -cleanup {
+        rename $r {}
+    } -returnCodes error -result "Invalid enum \"d\""
+
+    test record-7.6 {
+        Record select field from truncated record
+    } -setup {
+        set r [twapi::record {a b c}]
+    } -body {
+        $r select {1 2} {a b}
+    } -cleanup {
+        rename $r {}
+    } -result {1 2}
+
+    test record-7.7 {
+        Record select field from truncated record (fail)
+    } -setup {
+        set r [twapi::record {a b c}]
+    } -body {
+        $r select {1 2} {a c}
+    } -cleanup {
+        rename $r {}
+    } -returnCodes error -result "too few values in record*" -match glob
+
+    test record-7.8 {
+        Record select field from empty record (fail)
+    } -setup {
+        set r [twapi::record {a b c}]
+    } -body {
+        $r select {} {a b}
+    } -cleanup {
+        rename $r {}
+    } -returnCodes error -result "too few values in record*" -match glob
+
+
+    test record-8.0 {
+        Test crash fix when invalid field does not have a string rep (Bug 127)
+    } -setup {
+        set r [twapi::record {a b c}]
+    } -body {
+        $r [list d e f] {1 2 3}; # Field name is a pure list
+    } -returnCodes error -result "Invalid enum \"d e f\""
+
+    test record-9.0 {
+        Invalid record subcommand
+    } -setup {
+        set r [twapi::record {a b c}]
+    } -body {
+        $r foo {1 2 3} c
+    } -cleanup {
+        rename $r {}
+    } -returnCodes error -result "bad command \"foo\": must be get, set, or select"
+
+    ################################################################
+
+    test recordarray-1.0 {
+        recordarray cell first cell
+    } -setup {
+        set ra {{a b c} { {{0 0} {0 1} {1 2}} {{1 0} {1 1} {1 2}} {{2 0} {2 1} {2 2}} }}
+    } -body {
+        twapi::recordarray cell $ra 0 a
+    } -result {0 0}
+
+    test recordarray-1.1 {
+        recordarray cell last cell
+    } -setup {
+        set ra {{a b c} { {{0 0} {0 1} {1 2}} {{1 0} {1 1} {1 2}} {{2 0} {2 1} {2 2}} }}
+    } -body {
+        twapi::recordarray cell $ra 2 c
+    } -result {2 2}
+
+
+    test recordarray-1.2 {
+        recordarray cell end
+    } -setup {
+        set ra {{a b c} { {{0 0} {0 1} {1 2}} {{1 0} {1 1} {1 2}} {{2 0} {2 1} {2 2}} }}
+    } -body {
+        twapi::recordarray cell $ra end b
+    } -result {2 1}
+
+    test recordarray-1.3 {
+        recordarray cell empty array
+    } -setup {
+        set ra {{a b c} {}}
+    } -body {
+        twapi::recordarray cell $ra 0 a
+    } -result {}
+
+    test recordarray-1.4 {
+        recordarray cell out of bounds row
+    } -setup {
+        set ra {{a b c} { {{0 0} {0 1} {1 2}} {{1 0} {1 1} {1 2}} {{2 0} {2 1} {2 2}} }}
+    } -body {
+        twapi::recordarray cell $ra 3 b
+    } -result {}
+
+    test recordarray-1.5 {
+        recordarray cell negative row
+    } -setup {
+        set ra {{a b c} { {{0 0} {0 1} {1 2}} {{1 0} {1 1} {1 2}} {{2 0} {2 1} {2 2}} }}
+    } -body {
+        twapi::recordarray cell $ra 3 b
+    } -result {}
+
+    test recordarray-1.6 {
+        recordarray cell invalid column
+    } -setup {
+        set ra {{a b c} { {{0 0} {0 1} {1 2}} {{1 0} {1 1} {1 2}} {{2 0} {2 1} {2 2}} }}
+    } -body {
+        twapi::recordarray cell $ra 0 d
+    } -result "Invalid enum \"d\"" -returnCodes error
+
+    test recordarray-2.0 {
+        recordarray column first column
+    } -setup {
+        set ra {{a b c} { {{0 0} {0 1} {1 2}} {{1 0} {1 1} {1 2}} {{2 0} {2 1} {2 2}} }}
+    } -body {
+        twapi::recordarray column $ra a
+    } -result {{0 0} {1 0} {2 0}}
+
+    test recordarray-2.1 {
+        recordarray column last column
+    } -setup {
+        set ra {{a b c} { {{0 0} {0 1} {0 2}} {{1 0} {1 1} {1 2}} {{2 0} {2 1} {2 2}} }}
+    } -body {
+        twapi::recordarray column $ra c
+    } -result {{0 2} {1 2} {2 2}}
+
+    test recordarray-2.2 {
+        recordarray column filter 
+    } -setup {
+        set ra {{a b c} { {1 2 3} {4 5 6} {7 8 9} }}
+    } -body {
+        twapi::recordarray column $ra b -filter {{b != 5}}
+    } -result {2 8}
+
+    test recordarray-2.3 {
+        recordarray column filter column different from retrived column
+    } -setup {
+        set ra {{a b c} { {1 2 3} {4 5 6} {7 8 9} }}
+    } -body {
+        twapi::recordarray column $ra a -filter {{c != 3}}
+    } -result {4 7}
+    
+    test recordarray-3.0 {
+        recordarray concat single array
+    } -setup {
+        set ra {{a b c} { {1 2 3} {4 5 6} {7 8 9} }}
+    } -body {
+        twapi::recordarray concat $ra 
+    } -result {{a b c} {{1 2 3} {4 5 6} {7 8 9}}}
+
+    test recordarray-3.1 {
+        recordarray concat array
+    } -setup {
+        set ra {{a b c} { {1 2 3} {4 5 6} {7 8 9} }}
+    } -body {
+        twapi::recordarray concat $ra {{a b c} {{A B C}}}
+    } -result {{a b c} {{1 2 3} {4 5 6} {7 8 9} {A B C}}}
+
+    test recordarray-3.2 {
+        recordarray concat empty array
+    } -setup {
+        set ra {{a b c} { {1 2 3} {4 5 6} {7 8 9} }}
+    } -body {
+        twapi::recordarray concat $ra {{a b c} {}}
+    } -result {{a b c} {{1 2 3} {4 5 6} {7 8 9}}}
+
+    test recordarray-3.3 {
+        recordarray concat array with different field names
+    } -setup {
+        set ra {{a b c} { {1 2 3} {4 5 6} {7 8 9} }}
+    } -body {
+        twapi::recordarray concat $ra {{x y z} {{A B C}}}
+    } -result {Attempt to concat record arrays with different fields (a,b,c versus x,y,z)} -returnCodes error
+
+    test recordarray-3.4 {
+        recordarray concat array with different field number
+    } -setup {
+        set ra {{a b c} { {1 2 3} {4 5 6} {7 8 9} }}
+    } -body {
+        twapi::recordarray concat $ra {{a b c d} {{A B C D}}}
+    } -result {Attempt to concat record arrays with different fields (a,b,c versus a,b,c,d)} -returnCodes error
+
+    test recordarray-3.5 {
+        recordarray concat empty array
+    } -setup {
+        set ra {{a b c} { {1 2 3} {4 5 6} {7 8 9} }}
+    } -body {
+        twapi::recordarray concat $ra {}
+    } -result {Attempt to concat record arrays with different fields (a,b,c versus )} -returnCodes error
+
+
+    test recordarray-4.0 {
+        recordarray fields
+    } -setup {
+        set ra {{a b c} { {{0 0} {0 1} {1 2}} {{1 0} {1 1} {1 2}} {{2 0} {2 1} {2 2}} }}
+    } -body {
+        twapi::recordarray fields $ra 
+    } -result {a b c}
+
+
+    test recordarray-5.0 {
+        recordarray get
+    } -setup {
+        set ra {{a b c} {{{0 0} {0 1} {1 2}} {{1 0} {1 1} {1 2}} {{2 0} {2 1} {2 2}}}}
+    } -body {
+        twapi::recordarray get $ra
+    } -result {{a b c} {{{0 0} {0 1} {1 2}} {{1 0} {1 1} {1 2}} {{2 0} {2 1} {2 2}}}}
+
+    test recordarray-5.1 {
+        recordarray get -slice
+    } -setup {
+        set ra {{a b c} { {{0 0} {0 1} {1 2}} {{1 0} {1 1} {1 2}} {{2 0} {2 1} {2 2}} }}
+    } -body {
+        twapi::recordarray get $ra -slice {a c}
+    } -result {{a c} {{{0 0} {1 2}} {{1 0} {1 2}} {{2 0} {2 2}}}}
+
+    test recordarray-5.2 {
+        recordarray get -slice single column
+    } -setup {
+        set ra {{a {b x} c} { {{0 0} {0 1} {1 2}} {{1 0} {1 1} {1 2}} {{2 0} {2 1} {2 2}} }}
+    } -body {
+        twapi::recordarray get $ra -slice {{b x}}
+    } -result {{{b x}} {{{0 1}} {{1 1}} {{2 1}}}}
+
+    test recordarray-5.3 {
+        recordarray get -filter 
+    } -setup {
+        set ra {{a b c} { {0 {0 1} {1 2}} {1 {1 1} {1 2}} {2 {2 1} {2 2}}}}
+    } -body {
+        twapi::recordarray get $ra -filter {{a != 1}}
+    } -result {{a b c} {{0 {0 1} {1 2}} {2 {2 1} {2 2}}}}
+
+    test recordarray-5.4 {
+        recordarray get -filter 
+    } -setup {
+        set ra {{a b c} { {0 {0 1} {1 2}} {1 {1 1} {1 2}} {2 {2 1} {2 2}}}}
+    } -body {
+        twapi::recordarray get $ra -filter {{a != 1} {b eq {2 1}}}
+    } -result {{a b c} {{2 {2 1} {2 2}}}}
+
+    test recordarray-5.5 {
+        recordarray get -filter empty result
+    } -setup {
+        set ra {{a b c} { {0 {0 1} {1 2}} {1 {1 1} {1 2}} {2 {2 1} {2 2}}}}
+    } -body {
+        twapi::recordarray get $ra -filter {{a != 1} {b eq {1 1}}}
+    } -result {{a b c} {}}
+
+    test recordarray-5.6 {
+        recordarray get -filter -slice
+    } -setup {
+        set ra {{a b c} { {0 {0 1} {1 2}} {1 {1 1} {1 2}} {2 {2 1} {2 2}}}}
+    } -body {
+        twapi::recordarray get $ra -filter {{a != 1}} -slice {a b}
+    } -result {{a b} {{0 {0 1}} {2 {2 1}}}}
+
+    test recordarray-5.7 {
+        recordarray get -filter -slice different order
+    } -setup {
+        set ra {{a b c} { {0 {0 1} {1 2}} {1 {1 1} {1 2}} {2 {2 1} {2 2}}}}
+    } -body {
+        twapi::recordarray get $ra -filter {{a != 1} {b eq {2 1}}} -slice {c a}
+    } -result {{c a} {{{2 2} 2}}}
+
+    test recordarray-6.0 {
+        recordarray getdict
+    } -setup {
+        set ra {{a b c} { {{0 0} {0 1} {0 2}} {{1 0} {1 1} {1 2}} {{2 0} {2 1} {2 2}} }}
+    } -body {
+        twapi::recordarray getdict $ra
+    } -result {{0 0} {{0 0} {0 1} {0 2}} {1 0} {{1 0} {1 1} {1 2}} {2 0} {{2 0} {2 1} {2 2}}}
+
+    test recordarray-6.1 {
+        recordarray getdict -key
+    } -setup {
+        set ra {{a b c} { {{0 0} {0 1} {0 2}} {{1 0} {1 1} {1 2}} {{2 0} {2 1} {2 2}} }}
+    } -body {
+        twapi::recordarray getdict $ra -key c
+    } -result {{0 2} {{0 0} {0 1} {0 2}} {1 2} {{1 0} {1 1} {1 2}} {2 2} {{2 0} {2 1} {2 2}}}
+
+    test recordarray-6.2 {
+        recordarray getdict -slice
+    } -setup {
+        set ra {{a b c} { {{0 0} {0 1} {0 2}} {{1 0} {1 1} {1 2}} {{2 0} {2 1} {2 2}} }}
+    } -body {
+        twapi::recordarray getdict $ra -slice {a c}
+    } -result {{0 0} {{0 0} {0 2}} {1 0} {{1 0} {1 2}} {2 0} {{2 0} {2 2}}}
+
+    test recordarray-6.3 {
+        recordarray getdict -slice
+    } -setup {
+        set ra {{a b c} { {{0 0} {0 1} {0 2}} {{1 0} {1 1} {1 2}} {{2 0} {2 1} {2 2}} }}
+    } -body {
+        twapi::recordarray getdict $ra -slice {a b} -key c
+    } -result {{0 2} {{0 0} {0 1}} {1 2} {{1 0} {1 1}} {2 2} {{2 0} {2 1}}}
+
+    test recordarray-6.4 {
+        recordarray getdict -filter 
+    } -setup {
+        set ra {{a b c} { {0 {0 1} {0 2}} {1 {1 1} {1 2}} {2 {2 1} {2 2}}}}
+    } -body {
+        twapi::recordarray getdict $ra -filter {{a != 1}}
+    } -result {0 {0 {0 1} {0 2}} 2 {2 {2 1} {2 2}}}
+
+    test recordarray-6.5 {
+        recordarray getdict -filter empty result
+    } -setup {
+        set ra {{a b c} { {0 {0 1} {1 2}} {1 {1 1} {1 2}} {2 {2 1} {2 2}}}}
+    } -body {
+        twapi::recordarray getdict $ra -filter {{a != 1} {b eq {1 1}}}
+    } -result {}
+
+    test recordarray-6.6 {
+        recordarray getdict -filter -slice
+    } -setup {
+        set ra {{a b c} { {0 {0 1} {0 2}} {1 {1 1} {1 2}} {2 {2 1} {2 2}}}}
+    } -body {
+        twapi::recordarray getdict $ra -filter {{a != 0}} -slice {a b} -key c
+    } -result {{1 2} {1 {1 1}} {2 2} {2 {2 1}}}
+
+    test recordarray-6.7 {
+        recordarray getdict -filter -slice different order
+    } -setup {
+        set ra {{a b c} { {0 {0 1} {0 2}} {1 {2 1} {1 2}} {2 {2 1} {2 2}}}}
+    } -body {
+        twapi::recordarray getdict $ra -filter {{a != 1} {b eq {2 1}}} -slice {c b}
+    } -result {2 {{2 2} {2 1}}}
+
+    test recordarray-6.8 {
+        recordarray getdict -filter -slice -format list
+    } -setup {
+        set ra {{a b c} { {0 {0 1} {0 2}} {1 {1 1} {1 2}} {2 {2 1} {2 2}}}}
+    } -body {
+        twapi::recordarray getdict $ra -filter {{a != 0}} -slice {a b} -key c -format list
+    } -result {{1 2} {1 {1 1}} {2 2} {2 {2 1}}}
+
+    test recordarray-6.9 {
+        recordarray getdict -filter -slice -format dict
+    } -setup {
+        set ra {{a {b x} c} {{0 {0 1} {0 2}} {1 {1 1} {1 2}} {2 {2 1} {2 2}}}}
+    } -body {
+        twapi::recordarray getdict $ra -filter {{a != 0}} -slice {a {b x}} -key c -format dict
+    } -result {{1 2} {a 1 {b x} {1 1}} {2 2} {a 2 {b x} {2 1}}}
+
+    test recordarray-7.0 {
+        recordarray getlist
+    } -setup {
+        set ra {{a b c} {{{0 0} {0 1} {0 2}} {{1 0} {1 1} {1 2}} {{2 0} {2 1} {2 2}}}}
+    } -body {
+        twapi::recordarray getlist $ra
+    } -result {{{0 0} {0 1} {0 2}} {{1 0} {1 1} {1 2}} {{2 0} {2 1} {2 2}}}
+
+    test recordarray-7.1 {
+        recordarray getlist -slice
+    } -setup {
+        set ra {{a b c} { {{0 0} {0 1} {0 2}} {{1 0} {1 1} {1 2}} {{2 0} {2 1} {2 2}} }}
+    } -body {
+        twapi::recordarray getlist $ra -slice {a c}
+    } -result {{{0 0} {0 2}} {{1 0} {1 2}} {{2 0} {2 2}}}
+
+    test recordarray-7.2 {
+        recordarray getlist -filter 
+    } -setup {
+        set ra {{a b c} { {0 {0 1} {0 2}} {1 {1 1} {1 2}} {2 {2 1} {2 2}}}}
+    } -body {
+        twapi::recordarray getlist $ra -filter {{a != 1}}
+    } -result {{0 {0 1} {0 2}} {2 {2 1} {2 2}}}
+
+    test recordarray-7.3 {
+        recordarray getlist -filter empty result
+    } -setup {
+        set ra {{a b c} { {0 {0 1} {1 2}} {1 {1 1} {1 2}} {2 {2 1} {2 2}}}}
+    } -body {
+        twapi::recordarray getlist $ra -filter {{a != 1} {b eq {1 1}}}
+    } -result {}
+
+    test recordarray-7.4 {
+        recordarray getlist -filter -slice
+    } -setup {
+        set ra {{a b c} { {0 {0 1} {0 2}} {1 {1 1} {1 2}} {2 {2 1} {2 2}}}}
+    } -body {
+        twapi::recordarray getlist $ra -filter {{a != 0}} -slice {a b}
+    } -result {{1 {1 1}} {2 {2 1}}}
+
+    test recordarray-7.5 {
+        recordarray getlist -filter -slice different order
+    } -setup {
+        set ra {{a b c} { {0 {0 1} {0 2}} {1 {2 1} {1 2}} {2 {2 1} {2 2}}}}
+    } -body {
+        twapi::recordarray getlist $ra -filter {{a != 1} {b eq {2 1}}} -slice {c b}
+    } -result {{{2 2} {2 1}}}
+
+    test recordarray-7.6 {
+        recordarray getlist -format flat
+    } -setup {
+        set ra {{a b c} { {{0 0} {0 1} {0 2}} {{1 0} {1 1} {1 2}} {{2 0} {2 1} {2 2}}}}
+    } -body {
+        twapi::recordarray getlist $ra -format flat
+    } -result {{0 0} {0 1} {0 2} {1 0} {1 1} {1 2} {2 0} {2 1} {2 2}}
+
+    test recordarray-7.7 {
+        recordarray getlist -slice -flat
+    } -setup {
+        set ra {{a b c} { {{0 0} {0 1} {0 2}} {{1 0} {1 1} {1 2}} {{2 0} {2 1} {2 2}} }}
+    } -body {
+        twapi::recordarray getlist $ra -slice {a c} -format flat
+    } -result {{0 0} {0 2} {1 0} {1 2} {2 0} {2 2}}
+
+    test recordarray-7.8 {
+        recordarray getlist -slice -flat -filter
+    } -setup {
+        set ra {{a b c} { {{0 0} {0 1} {0 2}} {{1 0} {1 1} {1 2}} {{2 0} {2 1} {2 2}} }}
+    } -body {
+        twapi::recordarray getlist $ra -slice {a c} -filter {{b ne {1 1}}} -format flat
+    } -result {{0 0} {0 2} {2 0} {2 2}}
+
+    test recordarray-7.9 {
+        recordarray getlist -filter -slice -format list
+    } -setup {
+        set ra {{a b c} { {0 {0 1} {0 2}} {1 {1 1} {1 2}} {2 {2 1} {2 2}}}}
+    } -body {
+        twapi::recordarray getlist $ra -filter {{a != 0}} -slice {a b} -format list
+    } -result {{1 {1 1}} {2 {2 1}}}
+
+    test recordarray-7.10 {
+        recordarray getlist -filter -slice -format dict
+    } -setup {
+        set ra {{a {b x} c} { {0 {0 1} {0 2}} {1 {1 1} {1 2}} {2 {2 1} {2 2}}}}
+    } -body {
+        twapi::recordarray getlist $ra -filter {{a != 0}} -slice {a {b x}} -format dict
+    } -result {{a 1 {b x} {1 1}} {a 2 {b x} {2 1}}}
+
+    test recordarray-8.0 {
+        recordarray -filter ==
+    } -setup {
+        set ra {{a b c} {{-1 -2 -3} {0 0 0} {1 2 3} {-1 0 3}}}
+    } -body {
+        twapi::recordarray get $ra -filter {{b == 0}}
+    } -result {{a b c} {{0 0 0} {-1 0 3}}}
+
+    test recordarray-8.1 {
+        recordarray -filter == -first
+    } -setup {
+        set ra {{a b c} {{-1 -2 -3} {0 0 0} {1 2 3} {-1 0 3}}}
+    } -body {
+        twapi::recordarray get $ra -filter {{b == 0}} -first
+    } -result {{a b c} {{0 0 0}}}
+
+    test recordarray-8.2 {
+        recordarray -filter !=
+    } -setup {
+        set ra {{a b c} {{-1 -2 -3} {0 0 0} {1 2 3} {-1 0 3}}}
+    } -body {
+        twapi::recordarray get $ra -filter {{b != 0}}
+    } -result {{a b c} {{-1 -2 -3} {1 2 3}}}
+
+    test recordarray-8.3 {
+        recordarray -filter != -first
+    } -setup {
+        set ra {{a b c} {{-1 -2 -3} {0 0 0} {1 2 3} {-1 0 3}}}
+    } -body {
+        twapi::recordarray get $ra -filter {{b != 0}} -first
+    } -result {{a b c} {{-1 -2 -3}}}
+
+    test recordarray-8.4 {
+        recordarray -filter <
+    } -setup {
+        set ra {{a b c} {{-1 -2 -3} {0 0 0} {1 2 3} {-1 0 3}}}
+    } -body {
+        twapi::recordarray get $ra -filter {{a < 1}}
+    } -result {{a b c} {{-1 -2 -3} {0 0 0} {-1 0 3}}}
+
+    test recordarray-8.5 {
+        recordarray -filter < -first
+    } -setup {
+        set ra {{a b c} {{-1 -2 -3} {0 0 0} {1 2 3} {-1 0 3}}}
+    } -body {
+        twapi::recordarray get $ra -filter {{a < 1}} -first
+    } -result {{a b c} {{-1 -2 -3}}}
+
+    test recordarray-8.6 {
+        recordarray -filter < <
+    } -setup {
+        set ra {{a b c} {{-1 -2 -3} {0 0 0} {1 2 3} {-1 0 3}}}
+    } -body {
+        twapi::recordarray get $ra -filter {{a < 1} {c < 0}} -slice {c b a}
+    } -result {{c b a} {{-3 -2 -1}}}
+
+    test recordarray-8.7 {
+        recordarray -filter <=
+    } -setup {
+        set ra {{a b c} {{-1 -2 -3} {0 0 0} {1 2 3} {-1 0 3}}}
+    } -body {
+        twapi::recordarray get $ra -filter {{c <= 3}}
+    } -result {{a b c} {{-1 -2 -3} {0 0 0} {1 2 3} {-1 0 3}}}
+
+    test recordarray-8.8 {
+        recordarray -filter <=
+    } -setup {
+        set ra {{a b c} {{-1 -2 -3} {0 0 0} {1 2 3} {-1 0 3}}}
+    } -body {
+        twapi::recordarray get $ra -filter {{a <= 0}}
+    } -result {{a b c} {{-1 -2 -3} {0 0 0} {-1 0 3}}}
+
+    test recordarray-8.9 {
+        recordarray -filter <= -first
+    } -setup {
+        set ra {{a b c} {{-1 -2 4} {0 0 5} {1 2 3} {-1 0 3}}}
+    } -body {
+        twapi::recordarray get $ra -filter {{c <= 3}} -first
+    } -result {{a b c} {{1 2 3}}}
+
+    test recordarray-8.10 {
+        recordarray -filter <= <
+    } -setup {
+        set ra {{a b c} {{-1 2 -3} {0 0 0} {1 2 3} {-1 0 3}}}
+    } -body {
+        twapi::recordarray get $ra -filter {{a <= 0} {b < 0}} -slice {c b}
+    } -result {{c b} {}}
+
+    test recordarray-8.11 {
+        recordarray -filter >
+    } -setup {
+        set ra {{a b c} {{-1 -2 -3} {0 0 0} {1 2 3} {-1 0 3}}}
+    } -body {
+        twapi::recordarray getlist $ra -filter {{b > -1}}
+    } -result {{0 0 0} {1 2 3} {-1 0 3}}
+
+    test recordarray-8.12 {
+        recordarray -filter > -first
+    } -setup {
+        set ra {{a b c} {{-1 -2 -3} {0 0 0} {1 2 3} {-1 0 3}}}
+    } -body {
+        twapi::recordarray getlist $ra -filter {{b > -1}} -first
+    } -result {{0 0 0}}
+
+    test recordarray-8.13 {
+        recordarray -filter > -flat
+    } -setup {
+        set ra {{a b c} {{-1 -2 -3} {0 0 0} {1 2 3} {-1 0 3}}}
+    } -body {
+        twapi::recordarray getlist $ra -filter {{b > -1}} -format flat
+    } -result {0 0 0 1 2 3 -1 0 3}
+
+    test recordarray-8.14 {
+        recordarray -filter > <
+    } -setup {
+        set ra {{a b c} {{-1 -2 -3} {0 0 0} {1 2 3} {2 3 4}}}
+    } -body {
+        twapi::recordarray get $ra -filter {{a < 2} {a > -1}} -slice {c b a}
+    } -result {{c b a} {{0 0 0} {3 2 1}}}
+
+    test recordarray-8.15 {
+        recordarray -filter >=
+    } -setup {
+        set ra {{a b c} {{-1 -2 -3} {0 0 0} {1 2 3} {-1 0 3}}}
+    } -body {
+        twapi::recordarray getdict $ra -filter {{b >= -1}}
+    } -result {0 {0 0 0} 1 {1 2 3} -1 {-1 0 3}}
+
+    test recordarray-8.16 {
+        recordarray -filter >= -first
+    } -setup {
+        set ra {{a b c} {{-1 -2 -3} {0 1 2} {1 2 3} {-1 0 3}}}
+    } -body {
+        twapi::recordarray getdict $ra -filter {{b >= -1}} -key c -first
+    } -result {2 {0 1 2}}
+
+    test recordarray-8.17 {
+        recordarray -filter eq
+    } -setup {
+        set ra {{a b c} {{x y z} {X Y Z} {xa yb zc} {XA YB ZC} {m n o}}}
+    } -body {
+        twapi::recordarray get $ra -filter {{a eq xa}}
+    } -result {{a b c} {{xa yb zc}}}
+
+    test recordarray-8.18 {
+        recordarray -filter eq -nocase
+    } -setup {
+        set ra {{a b c} {{x y z} {X Y Z} {xa yb zc} {XA YB ZC} {m n o}}}
+    } -body {
+        twapi::recordarray getdict $ra -filter {{a eq xa -nocase}} -format dict
+    } -result {xa {a xa b yb c zc} XA {a XA b YB c ZC}}
+
+    test recordarray-8.19 {
+        recordarray -filter eq -nocase -first
+    } -setup {
+        set ra {{a b c} {{x y z} {X Y Z} {xa yb zc} {XA YB ZC} {m n o}}}
+    } -body {
+        twapi::recordarray getlist $ra -filter {{a eq xa -nocase}} -first
+    } -result {{xa yb zc}}
+
+    test recordarray-8.20 {
+        recordarray -filter ne
+    } -setup {
+        set ra {{a b c} {{x y z} {X Y Z} {xa yb zc} {XA YB ZC} {m n o}}}
+    } -body {
+        twapi::recordarray get $ra -filter {{a ne xa}}
+    } -result {{a b c} {{x y z} {X Y Z} {XA YB ZC} {m n o}}}
+
+    test recordarray-8.21 {
+        recordarray -filter ne -nocase
+    } -setup {
+        set ra {{a b c} {{x y z} {X Y Z} {xa yb zc} {XA YB ZC} {m n o}}}
+    } -body {
+        twapi::recordarray getdict $ra -filter {{a ne xa -nocase}} -format dict -key c
+    } -result {z {a x b y c z} Z {a X b Y c Z} o {a m b n c o}}
+
+    test recordarray-8.22 {
+        recordarray -filter ne -nocase -first
+    } -setup {
+        set ra {{a b c} {{x y z} {X Y Z} {xa yb zc} {XA YB ZC} {m n o}}}
+    } -body {
+        twapi::recordarray getlist $ra -filter {{a ne xa} {b eq YB}} -first
+    } -result {{XA YB ZC}}
+
+
+    test recordarray-8.23 {
+        recordarray -filter ~
+    } -setup {
+        set ra {{a b c} {{x y z} {X Y Z} {xa yb zc} {XA YB ZC} {m n o}}}
+    } -body {
+        twapi::recordarray get $ra -filter {{a ~ x*}}
+    } -result {{a b c} {{x y z} {xa yb zc}}}
+
+    test recordarray-8.24 {
+        recordarray -filter ~ -nocase
+    } -setup {
+        set ra {{a b c} {{x y z} {X Y Z} {xa yb zc} {XA YB ZC} {m n o}}}
+    } -body {
+        twapi::recordarray getdict $ra -filter {{b ~ y* -nocase}} -format dict -key c
+    } -result {z {a x b y c z} Z {a X b Y c Z} zc {a xa b yb c zc} ZC {a XA b YB c ZC}}
+
+    test recordarray-8.25 {
+        recordarray -filter ~ -nocase -first
+    } -setup {
+        set ra {{a b c} {{x y z} {X Y Z} {xa yb zc} {XA YB ZC} {m n o}}}
+    } -body {
+        twapi::recordarray getlist $ra -filter {{a ~ x*} {c ~ *C -nocase}} -first
+    } -result {{xa yb zc}}
+
+    test recordarray-8.26 {
+        recordarray -filter !~
+    } -setup {
+        set ra {{a b c} {{x y z} {X Y Z} {xa yb zc} {XA YB ZC} {m n o}}}
+    } -body {
+        twapi::recordarray get $ra -filter {{a !~ x*}}
+    } -result  {{a b c} {{X Y Z} {XA YB ZC} {m n o}}}
+
+    test recordarray-8.27 {
+        recordarray -filter !~ -nocase
+    } -setup {
+        set ra {{a b c} {{x y z} {X Y Z} {xa yb zc} {XA YB ZC} {m n o}}}
+    } -body {
+        twapi::recordarray getdict $ra -filter {{b !~ y* -nocase}} -format dict -key c
+    } -result {o {a m b n c o}}
+
+    test recordarray-8.28 {
+        recordarray -filter !~ -nocase -first
+    } -setup {
+        set ra {{a b c} {{x y z} {X Y Z} {xa yb zc} {XA YB ZC} {m n o}}}
+    } -body {
+        twapi::recordarray getlist $ra -filter {{a !~ x*} {c !~ O -nocase}} -first -format flat
+    } -result {X Y Z}
+
+    test recordarray-9.0 {
+        recordarray size
+    } -setup {
+        set ra {{a b c} {{x y z} {X Y Z} {xa yb zc} {XA YB ZC} {m n o}}}
+    } -body {
+        twapi::recordarray size $ra
+    } -result 5
+
+    test recordarray-9.1 {
+        recordarray size 0
+    } -setup {
+        set ra {{a b c} {}}
+    } -body {
+        twapi::recordarray size $ra
+    } -result 0
+
+    test recordarray-9.2 {
+        recordarray size 0
+    } -body {
+        twapi::recordarray size {}
+    } -result 0
+
+    test recordarray-10.0 {
+        recordarray rename
+    } -setup {
+        set ra {{a b c} {{x y z} {X Y Z}}}
+    } -body {
+        twapi::recordarray rename $ra {a x c Y}
+    } -result {{x b Y} {{x y z} {X Y Z}}}
+
+    test recordarray-10.1 {
+        recordarray rename
+    } -setup {
+        set ra {{a b c} {{x y z} {X Y Z}}}
+    } -body {
+        twapi::recordarray rename $ra {}
+    } -result {{a b c} {{x y z} {X Y Z}}}
+
+    test recordarray-10.2 {
+        recordarray rename
+    } -setup {
+        set ra {{a b c} {{x y z} {X Y Z}}}
+    } -body {
+        twapi::recordarray rename $ra {a b b c c a}
+    } -result {{b c a} {{x y z} {X Y Z}}}
+
+    test recordarray-11.0 {
+        recordarray index
+    } -setup {
+        set ra {{a b c} {{{0 0} {0 1} {1 2}} {{1 0} {1 1} {1 2}} {{2 0} {2 1} {2 2}}}}
+    } -body {
+        twapi::recordarray index $ra 0
+    } -result {{0 0} {0 1} {1 2}}
+
+    test recordarray-11.1 {
+        recordarray index end
+    } -setup {
+        set ra {{a b c} {{{0 0} {0 1} {1 2}} {{1 0} {1 1} {1 2}} {{2 0} {2 1} {2 2}}}}
+    } -body {
+        twapi::recordarray index $ra end
+    } -result {{2 0} {2 1} {2 2}}
+
+    test recordarray-11.2 {
+        recordarray index -slice
+    } -setup {
+        set ra {{a b c} { {{0 0} {0 1} {1 2}} {{1 0} {1 1} {1 2}} {{2 0} {2 1} {2 2}} }}
+    } -body {
+        twapi::recordarray index $ra 1 -slice {a c}
+    } -result {{1 0} {1 2}}
+
+    test recordarray-11.3 {
+        recordarray index -format list
+    } -setup {
+        set ra {{a b c} {{{0 0} {0 1} {1 2}} {{1 0} {1 1} {1 2}} {{2 0} {2 1} {2 2}}}}
+    } -body {
+        twapi::recordarray index $ra 0 -format list
+    } -result {{0 0} {0 1} {1 2}}
+
+    test recordarray-11.3 {
+        recordarray index -format dict
+    } -setup {
+        set ra {{a b c} {{{0 0} {0 1} {1 2}} {{1 0} {1 1} {1 2}} {{2 0} {2 1} {2 2}}}}
+    } -body {
+        twapi::recordarray index $ra 0 -format dict
+    } -result {a {0 0} b {0 1} c {1 2}}
+
+    test recordarray-12.0 {
+        recordarray range
+    } -setup {
+        set ra {{a b c} {{{0 0} {0 1} {1 2}} {{1 0} {1 1} {1 2}} {{2 0} {2 1} {2 2}}}}
+    } -body {
+        twapi::recordarray range $ra 0 end
+    } -result {{a b c} {{{0 0} {0 1} {1 2}} {{1 0} {1 1} {1 2}} {{2 0} {2 1} {2 2}}}}
+
+    test recordarray-12.1 {
+        recordarray range empty
+    } -setup {
+        set ra {{a b c} {{{0 0} {0 1} {1 2}} {{1 0} {1 1} {1 2}} {{2 0} {2 1} {2 2}}}}
+    } -body {
+        twapi::recordarray range $ra 0 -1
+    } -result {{a b c} {}}
+
+    test recordarray-12.2 {
+        recordarray range empty
+    } -setup {
+        set ra {{a b c} {}}
+    } -body {
+        twapi::recordarray range $ra 0 end
+    } -result {{a b c} {}}
+
+    test recordarray-12.3 {
+        recordarray range 0..
+    } -setup {
+        set ra {{a b c} {{{0 0} {0 1} {1 2}} {{1 0} {1 1} {1 2}} {{2 0} {2 1} {2 2}}}}
+    } -body {
+        twapi::recordarray range $ra 0 1
+    } -result {{a b c} {{{0 0} {0 1} {1 2}} {{1 0} {1 1} {1 2}}}}
+
+    test recordarray-12.4 {
+        recordarray range N..N
+    } -setup {
+        set ra {{a b c} {{{0 0} {0 1} {1 2}} {{1 0} {1 1} {1 2}} {{2 0} {2 1} {2 2}}}}
+    } -body {
+        twapi::recordarray range $ra 1 1
+    } -result {{a b c} {{{1 0} {1 1} {1 2}}}}
+
+    test recordarray-12.5 {
+        recordarray range out of range
+    } -setup {
+        set ra {{a b c} {{{0 0} {0 1} {1 2}} {{1 0} {1 1} {1 2}} {{2 0} {2 1} {2 2}}}}
+    } -body {
+        twapi::recordarray range $ra 2 4
+    } -result {{a b c} {{{2 0} {2 1} {2 2}}}}
+
+    test recordarray-13.0 {
+        recordarray iterate empty
+    } -setup {
+        set ra {}
+        unset -nocomplain arr
+    } -body {
+        twapi::recordarray iterate arr $ra {} 
+    } -result {}
+
+    test recordarray-13.1 {
+        recordarray iterate empty
+    } -setup {
+        set ra {{a b} {}}
+        unset -nocomplain arr
+    } -body {
+        set l {}
+        list [twapi::recordarray iterate arr $ra {lappend l [array get arr]}] $l
+    } -result {{} {}}
+
+    test recordarray-13.2 {
+        recordarray iterate
+    } -setup {
+        set ra {{a b} {{1 2} {3 4}}}
+        unset -nocomplain arr
+    } -body {
+        set l {}
+        list [twapi::recordarray iterate arr $ra {lappend l [array get arr]}] $l
+    } -result {{} {{a 1 b 2} {a 3 b 4}}}
+
+    test recordarray-13.3 {
+        recordarray iterate break
+    } -setup {
+        set ra {{a b} {{1 2} {3 4}}}
+        unset -nocomplain arr
+    } -body {
+        set l {}
+        list [twapi::recordarray iterate arr $ra {
+            lappend l [array get arr]
+            break
+        }] $l
+    } -result {{} {{a 1 b 2}}}
+
+    test recordarray-13.4 {
+        recordarray iterate continue
+    } -setup {
+        set ra {{a b} {{1 2} {3 4}}}
+        unset -nocomplain arr
+    } -body {
+        set l {}
+        list [twapi::recordarray iterate arr $ra {
+            lappend l [array get arr]
+            continue
+            lappend l shouldnotbeappended
+        }] $l
+    } -result {{} {{a 1 b 2} {a 3 b 4}}}
+
+    test recordarray-13.5 {
+        recordarray iterate return
+    } -setup {
+        set ra {{a b} {{1 2} {3 4}}}
+        unset -nocomplain arr
+    } -body {
+        proc xx {ra} {
+            set l {}
+            list [twapi::recordarray iterate arr $ra {
+                lappend l [array get arr]
+                return $l
+            }] $l
+        }
+        xx $ra
+    } -result {{a 1 b 2}}
+
+    test recordarray-13.6 {
+        recordarray iterate return
+    } -setup {
+        set ra {{a b} {{1 2} {3 4}}}
+        unset -nocomplain arr
+    } -body {
+        proc xx {ra} {
+            set l {}
+            list [twapi::recordarray iterate arr $ra {
+                lappend l [array get arr]
+                error foo
+            }] $l
+        }
+        xx $ra
+    } -result foo -returnCodes error
+
+    test recordarray-13.7 {
+        recordarray iterate -filter
+    } -setup {
+        set ra {{a b} {{1 2} {3 4} {0 0}}}
+        unset -nocomplain arr
+    } -body {
+        set l {}
+        list [twapi::recordarray iterate arr $ra -filter {{a < 3}} {lappend l [array get arr]}] $l
+    } -result {{} {{a 1 b 2} {a 0 b 0}}}
+
+    test recordarray-13.8 {
+        recordarray iterate -slice
+    } -setup {
+        set ra {{a b} {{1 2} {3 4} {0 0}}}
+        unset -nocomplain arr
+    } -body {
+        set l {}
+        list [twapi::recordarray iterate arr $ra -slice b {lappend l [array get arr]}] $l
+    } -result {{} {{b 2} {b 4} {b 0}}}
+
+    test recordarray-13.9 {
+        recordarray iterate -filter
+    } -setup {
+        set ra {{a b} {{1 2} {3 4} {0 0}}}
+        unset -nocomplain arr
+    } -body {
+        set l {}
+        list [twapi::recordarray iterate arr $ra -slice {b} -filter {{a < 3}} {lappend l [array get arr]}] $l
+    } -result {{} {{b 2} {b 0}}}
+
+
+    ################################################################
+
+    test badargs-1.0 {
+        badargs
+    } -setup {
+        proc badproc args {twapi::badargs! Message}
+    } -body {
+        list [catch {badproc a b c} msg] [regexp {while executing\s+"badproc a b c"} $::errorInfo] $::errorCode
+    } -result {1 1 {TWAPI BADARGS Message}}
+
+    ################################################################
+
+    proc conceal_check {a b} {
+        set m [stringSimilarity $a $b]
+        # stringSimilarity considers ab and ba to be completely different
+        # so check for reversed sequences
+        set n [stringSimilarity $a [string reverse $b]]
+        if {[tcl::mathfunc::max $m $n] == 0} {
+            return 1
+        } else {
+            return 0
+        }
+    }
+    # Following similarity code is from the wiki http://wiki.tcl.tk/3070
+    test conceal-1.0 {
+        Conceal text
+    } -body {
+        set c [twapi::conceal abc]
+        list [string length $c] [conceal_check abc $c] [twapi::reveal $c]
+    } -result {8 1 abc}
+
+    test conceal-1.1 {
+        Conceal text exactly 8 chars (block size), unicode
+    } -body {
+        set c [twapi::conceal abcdefg\u0100]
+        list [string length $c] [string first ab $c] [twapi::reveal $c]
+    } -result [list 24 -1 abcdefg\u0100]
+
+    test conceal-1.2 {
+        Conceal empty string
+    } -body {
+        set c [twapi::conceal ""]
+        list [string length $c] [string equal "" $c] [twapi::reveal $c]
+    } -result [list 8 0 {}]
+
+    test conceal-1.3 {
+        Conceal string
+    } -setup {
+        set s "\x00\xff\x80"
+    } -body {
+        set c [twapi::conceal $s]
+        list [string length $c] [conceal_check $s $c]  [twapi::reveal $c]
+    } -result [list 8 1 "\x00\xff\x80"]
+
+    test conceal-1.4 {
+        Conceal string, block size (8)
+    } -setup {
+        set s "\x00\x01\x02\x03\xff\xfe\xfd\xfc"
+    } -body {
+        set c [twapi::conceal $s]
+        list [string length $c] [conceal_check $s $c] [twapi::reveal $c]
+    } -result [list 24 1 "\x00\x01\x02\x03\xff\xfe\xfd\xfc"]
+
+    test conceal-1.5 {
+        Conceal binary
+    } -setup {
+        set l {}
+        for {set i 0} {$i < 256} {incr i} {
+            lappend l $i
+        }
+        set binstr [binary format c* $l]
+    } -body {
+        set c [twapi::conceal $binstr]
+        # binary will be encoded as unicode (256*2) plus 8 byte pad = 520
+        list [string length $c] [conceal_check $binstr $c] [string equal $binstr [twapi::reveal $c]]
+    } -result [list 520 1 1]
+
+    ################################################################
+
+    test concealed?-1.0 {
+        Unconcealed text
+    } -body {
+        twapi::concealed? abc
+    } -result 0
+
+    test concealed?-1.1 {
+        Concealed text
+    } -body {
+        twapi::concealed? [twapi::conceal abc]
+    } -result 1
+
+
+    test concealed?-2.0 {
+        Unconcealed empty
+    } -body {
+        twapi::concealed? ""
+    } -result 0
+
+    test concealed?-2.1 {
+        Concealed text
+    } -body {
+        twapi::concealed? [twapi::conceal ""]
+    } -result 1
+
+    ################################################################
+
+    test swapl-1.0 {
+        swapl
+    } -body {
+        twapi::swapl {a b {c d} {e f}}
+    } -result {b a {e f} {c d}}
+
+    test swapl-1.1 {
+        swapl
+    } -body {
+        twapi::swapl {a b c}
+    } -result {b a {} c}
+
+    ################################################################
+
+    test read_credentials-1.0 {
+        read_credentials
+    } -constraints {
+        TBD
+    } -body {
+        TBD
+    } -result ""
+
+    test credentials_dialog-1.0 {
+        credentials_dialog
+    } -constraints {
+        TBD
+    } -body {
+        TBD
+    } -result ""
+
+    test confirm_credentials-1.0 {
+        confirm_credentials
+    } -constraints {
+        TBD
+    } -body {
+        TBD
+    } -result ""
+
+    ################################################################
+
+    test swap2-1.0 {
+        Swap a word
+    } -body {
+        twapi::swap2 0x8000
+    } -result 128
+
+    test swap2-1.1 {
+        Swap a word
+    } -body {
+        format %x [twapi::swap2 0xabcd]
+    } -result cdab
+
+    test swap2-1.2 {
+        Swap a word
+    } -body {
+        twapi::swap2 0x80
+    } -result 32768
+
+    test swap4-1.0 {
+        Swap a word
+    } -body {
+        twapi::swap4 0x80000000
+    } -result 128
+
+    test swap4-1.1 {
+        Swap a word
+    } -body {
+        format %x [twapi::swap4 0xabcd1234]
+    } -result 3412cdab
+
+    test swap4-1.2 {
+        Swap a word
+    } -body {
+        twapi::swap4 0x80
+    } -result -2147483648
+
+    test swap8-1.0 {
+        Swap a word
+    } -body {
+        twapi::swap8 0x8000000000000000
+    } -result 128
+
+    test swap8-1.1 {
+        Swap a word
+    } -body {
+        format %lx [twapi::swap8 0xfedcba9876543210]
+    } -result 1032547698badcfe
+
+    test swap8-1.2 {
+        Swap a word
+    } -body {
+        format %lx [twapi::swap8 0x80]
+    } -result 8000000000000000
+
+
+
+
+    test swap-100.0 {
+        swap8 swap8
+    } -constraints {
+        TBD
+    } -result TBD
+
+    ################################################################
+
+    test canonicalize_guid-1.0 {
+        Canonicalize no-op
+    } -body {
+        twapi::canonicalize_guid {{DC780A11-A89C-419A-9660-72D95B3DEFB5}}
+    } -result {{DC780A11-A89C-419A-9660-72D95B3DEFB5}}
+
+    test canonicalize_guid-1.1 {
+        Canonicalize missing braces
+    } -body {
+        twapi::canonicalize_guid DC780A11-A89C-419A-9660-72D95B3DEFB5
+    } -result {{DC780A11-A89C-419A-9660-72D95B3DEFB5}}
+
+    test canonicalize_guid-2.0 {
+        Canonicalize lower case
+    } -body {
+        twapi::canonicalize_guid {{dc780a11-a89c-419a-9660-72d95b3defb5}}
+    } -result {{DC780A11-A89C-419A-9660-72D95B3DEFB5}}
+
+    test canonicalize_guid-2.1 {
+        Canonicalize missing braces lower case
+    } -body {
+        twapi::canonicalize_guid dc780a11-a89c-419a-9660-72d95b3defb5
+    } -result {{DC780A11-A89C-419A-9660-72D95B3DEFB5}}
+
+
+    ################################################################
+
+    test make_logon_identity-1.0 {
+        make_logon_identity
+    } -body {
+        lassign [twapi::make_logon_identity username password domain] u d p
+        list $u $d [twapi::concealed? $p] [twapi::reveal $p]
+    } -result [list username domain 1 password]
+
+    test make_logon_identity-1.1 {
+        make_logon_identity
+    } -body {
+        lassign [twapi::make_logon_identity username [twapi::conceal password] domain] u d p
+        list $u $d [twapi::concealed? $p] [twapi::reveal $p]
+    } -result [list username domain 1 password]
+
+}
+
+
+::tcltest::cleanupTests
+
+namespace delete ::twapi::base::test

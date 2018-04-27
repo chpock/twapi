@@ -1,0 +1,843 @@
+[comment {-*- tcl -*- doctools manpage}]
+[manpage_begin "Event Tracing" n ""]
+[copyright "2012 Ashok P. Nadkarni"]
+[moddesc "Event Tracing for Windows"]
+[titledesc "Commands for generating, reading and controlling Event Tracing for Windows"]
+[require twapi_etw]
+[description]
+[para]
+
+Windows includes a facility, Event Tracing for Windows (ETW), that allows
+the kernel and applications to log events that can either be written to
+a file or consumed in real time. This module provides access to this facility.
+
+This documentation is reference material for commands related to ETW.
+For more introductory material
+and a guide with examples, see the [emph "Event Tracing"] chapter in the
+[uri http://www.magicsplat.com/book "Tcl on Windows"] online book.
+
+[section "Overview"]
+
+[para]
+In ETW, events are written to an [uri #eventtrace "event trace"] by
+[uri #eventproviders "event providers"] under the control of
+[uri #eventcontrollers "event controllers"] which manage the mapping between
+the two.
+[uri eventconsumers "Event consumers"] read events from one or more such
+event traces for display to the user or any other purpose. TWAPI provides
+support for implementing all of the above.
+
+[para]
+There are two different technologies on which ETW is based. All modern
+(post-Windows XP up to Windows 7) 
+versions of Windows support ETW based on Managed Object 
+Format (MOF) event definitions. Windows Vista and later versions also
+implement a newer version of ETW based on XML manifests. TWAPI
+currently supports only MOF based event tracing.
+
+
+[section "Event trace"]
+
+An event trace consists of a set of buffers, and optionally an 
+associated file, to which events are written. The trace has other
+associated parameters such as the time stamping granularity,
+access control information and buffer limits. These are configured
+through event controllers.
+
+[section "Event controllers"]
+
+[para]
+An event controller manages event traces and their association
+with event providers. The following TWAPI commands can be used
+to implement an event controller:
+[list_begin bullet]
+[bullet] To create a new event trace, use the 
+command [uri #etw_start_trace [cmd etw_start_trace]] which
+creates a new trace with configurable parameters.
+[bullet] To create and remove associations between event providers
+and traces, use the [uri #etw_enable_provider [cmd etw_enable_provider]]
+command. This command can also be used to communicate to the event providers
+what events are to be logged.
+[bullet] Use [uri #etw_query_trace [cmd etw_query_trace]]
+and [uri #etw_update_trace [cmd etw_update_trace]] to query and change
+the parameters of an existing trace.
+[bullet] To stop a trace, use the
+[uri #etw_stop_trace [cmd etw_stop_trace]] command. To flush the event
+trace buffers without terminating the trace, use
+[uri #etw_flush_trace [cmd etw_flush_trace]] command.
+[bullet] Use [uri #etw_get_traces [cmd etw_get_traces]] to get
+a list of all current traces.
+[list_end]
+
+[para]
+Note that the above commands can be used with [emph any] trace,
+not just those created using [uri #etw_start_trace [cmd etw_start_trace]].
+For example, traces created with the Windows 
+[cmd logman] or [cmd tracelog]
+command can be controlled with the above command and vice versa.
+
+[para]
+Note that only processes running with
+elevated administrative privileges, or under accounts in 
+the [const "Performance Log Users"]
+group, and services running as [const LocalSystem], [const LocalService],
+[const NetworkService] can start or control event traces.
+
+[section "Event providers"]
+
+[para]
+Event providers are components that write events to an event trace.
+Association with a specific trace is [emph not] under the control
+of the provider; that is a controller function. Of course, a single
+application may host both an event provider as well as an event controller.
+The list of providers on a system can be retrieved through the
+[uri #etw_get_providers [cmd etw_get_providers]] command. The command
+[uri #etw_get_provider_guid [cmd etw_get_provider_guid]] can be used
+to map the provider name to its GUID.
+
+[para]
+Controllers send configuration information to providers in the form
+of [emph "enable flags"] and the [emph "enable level"]. The interpretation
+of these is [emph entirely] to the discretion of the event provider.
+Neither Windows, nor TWAPI, interpret these in any way. The TWAPI commands
+[uri #etw_provider_enable_flags [cmd etw_provider_enable_flags]] and
+[uri #etw_provider_enable_level [cmd etw_provider_enable_level]] can
+be used to obtain the current values.
+[para]
+By convention,
+applications treat the enable flags as a bit mask that indicates
+the class(es) of events to log. For example, each bit might correspond
+to a specific subsystem. Note that a value of [const 0] does not
+mean the provider is disabled. It is up to the application as to how
+a value of [const 0] is interpreted. To determine whether a provider
+is actually enabled in the sense of being attached to an event trace,
+use the [uri #etw_trace_enabled [cmd etw_trace_enabled]] command.
+[para]
+Similarly, the enable level is generally treated as a
+severity level, but again, this is not mandated.
+
+[para]
+Before any controller can add a provider to an event trace, the provider
+has to register itself. TWAPI includes a predefined provider
+that can be registered through the 
+[uri #etw_twapi_provider_register [cmd etw_twapi_provider_register]] call.
+Correspondingly, the command 
+[uri #etw_unregister_provider [cmd etw_unregister_provider]] unregisters
+the provider. Note that this must be done after the provider is detached
+from any event traces else Windows exhibits anomalous but harmless behaviour
+where the provider's calls to write events to the event trace still work
+but the provider is not notified of changes in the enable flags and level
+or when the trace is stopped.
+
+[para]
+Once the TWAPI provider is registered and attached to an event trace, events
+can be logged to the trace with the
+[uri #etw_log_message [cmd etw_log_message]] command.
+
+[section "Event consumers"]
+
+[para]
+ETW event consumers read events from event traces in real time or from
+a log file. An example of an event consumers is the command line program
+[cmd tracerpt] which comes with Windows. The ETW interface allows 
+a consumer to read events from multiple traces and merges
+them as needed.
+
+[para]
+TWAPI provides the high-level [uri #etw_dump [cmd etw_dump]] and 
+[uri #etw_dump_to_file [cmd etw_dump_to_file]]
+commands which can read and format events. 
+
+[para]
+For more control over the processing,
+call [uri #etw_open_file [cmd etw_open_file]]
+or [uri #etw_open_session [cmd etw_open_session]]
+to open each log file or real time event trace of interest. Then invoke
+the commands
+[uri #etw_process_events [cmd etw_process_events]] and
+[uri #etw_format_events [cmd etw_format_events]] to process the events.
+[para]
+event traces opened with [cmd etw_open_session] should be closed
+with [uri #etw_close_session [cmd etw_close_session]] after processing.
+
+[section "Event definitions"]
+[para]
+Events written via ETW can have arbitrary binary formats. In order
+for consumers to be able to parse and extract data, they need to
+know the event definition. Providers use either Managed Object Format
+or XML manifests (Vista and later) to provide consumers with this
+information.
+When reading events, TWAPI will automatically look up event definitions
+as needed.
+[para]
+In order for event consumers to correctly parse events, TWAPI also
+has to make the MOF definitions for its ETW events available.
+This is done by calling the [uri #etw_install_twapi_mof [cmd etw_install_twapi_mof]]
+command. This must be done on the system where the event consumer runs.
+It is not required on the system where the events are generated.
+
+
+
+[section "Tracing kernel events"]
+[para]
+There is a special event trace associated with the Windows kernel. The
+kernel logs events such as network events, process events, disk I/O etc.
+to this trace when enabled. This trace can be started and configured
+through the [uri #etw_start_kernel_trace [cmd etw_start_kernel_trace]]
+command. The specific events to be logged are also specified as options
+to this command as the [uri #etw_enable_provider [cmd etw_enable_provider]]
+cannot be used with kernel traces.
+[para]
+See [uri http://msdn.microsoft.com/en-us/library/windows/desktop/aa364083(v=vs.85).aspx MSDN]
+for the structure and description of the various events logged by the 
+Windows kernel. The corresponding field names are returned by
+[uri #etw_format_events [cmd etw_format_events]].
+
+[section "Tcl ETW traces"]
+[para]
+TWAPI includes commands
+[uri #etw_variable_tracker [cmd etw_variable_tracker]],
+[uri #etw_command_tracker [cmd etw_command_tracker]] and
+[uri #etw_execution_tracker [cmd etw_execution_tracker]]
+that aid in logging Tcl variable, command and execution traces, respectively,
+to an ETW event trace.
+
+[example_begin]
+set hprovider [lb]etw_twapi_provider_register[rb]
+# Assume provider is added to event trace by some other means
+
+# Add an execution trace to proc p
+trace add execution p {enter leave enterstep leavestep} [lb]list twapi::etw_execution_tracker $hprovider[rb]
+[example_end]
+
+[section "ETW Controller Commands"]
+
+This section describes the commands that allow implementation of
+an ETW controller.
+
+[list_begin definitions]
+
+[call [cmd etw_disable_provider] [arg TRACEHANDLE] [arg PROVIDER]]
+Disables the specified provider 
+from logging to the event trace specified by [arg TRACEHANDLE]
+(as returned by [uri #etw_start_trace [cmd etw_start_trace]]).
+[arg PROVIDER] can be the name or the GUID of the provider.
+
+[call [cmd etw_enable_provider] [arg TRACEHANDLE] [arg PROVIDER] [arg ENABLEFLAGS] [arg LEVEL]]
+Enables a provider
+to log to the event trace specified by [arg TRACEHANDLE]
+(as returned by [uri #etw_start_trace [cmd etw_start_trace]]).
+[arg PROVIDER] can be the name or the GUID of the provider.
+[nl]
+[arg ENABLEFLAGS] is an integer bitmask that indicates to the provider which
+classes of events are to be logged. The specific bits depend on the provider.
+Use the Windows command [cmd "wevtutil gp PROVIDERNAME"] to list the event
+classes and the corresponding bitmask for a specific provider.
+[nl]
+[arg LEVEL] is an integer between 0 and 255 that indicates the severity
+level at which events should be logged. The provider will log all events
+at [arg LEVEL] and below. Levels 1 through 5 can also be denoted as
+[const fatal], [const error], [const warning], [const informational]
+and [const verbose] respectively.
+
+[call [cmd etw_flush_trace] [arg TRACE] [opt [arg options]]]
+Flushes the buffers belonging to an event trace.
+The trace [arg TRACE] may be specified either by its name
+or by its handle (as returned by [uri #etw_start_trace [cmd etw_start_trace]]).
+
+[call [cmd etw_get_provider_guid] [arg PROVIDERNAME]]
+Returns the GUID of specified provider.
+
+[call [cmd etw_get_providers] [opt [cmd -detail]]]
+If [cmd -detail] is not specified,
+returns a list containing the names of all providers registered on
+the system.
+If [cmd -detail] is specified, returns a list each element of
+which is a dictionary with keys
+[const guid] containing the GUID (same as the key), 
+[const name] containing the name of the provider and
+[const type] which is one of [const mof] or [const xml]
+depending on whether the provider events are
+defined using WMI MOF or XML manifests.
+
+[call [cmd etw_get_traces] [opt [cmd -detail]]]
+If [cmd -detail] is not specified, returns a list of the names of all traces
+currently running to which the calling process has access.
+If the [cmd -detail] option is specified,
+returns a list each element of which is a dictionary
+in the same
+format as returned by [uri #etw_query_trace [cmd etw_query_trace]].
+
+[call [cmd etw_query_trace] [arg TRACE]]
+Returns a dictionary containing an event trace's settings and status.
+The trace [arg TRACE] may be specified either by its name
+or by its handle (as returned by [uri #etw_start_trace [cmd etw_start_trace]]).
+The returned dictionary has the following keys 
+(any additional keys should be ignored and not relied on being present):
+[list_begin opt]
+[opt_def [cmd buffer_size]]
+Size of the buffers for the event trace.
+[opt_def [cmd buffers_written]]
+Number of buffers flushed.
+[opt_def [cmd clock_resolution]]
+One of [const qpc], [const system] or [const cpucycle] as described
+in [uri #etw_start_trace [cmd etw_start_trace]].
+[opt_def [cmd enable_flags]]
+The provider enable mask for the event trace. This is valid
+only for kernel traces in which case it contains the enable
+mask for the kernel components.
+[opt_def [cmd events_lost]]
+Number of events lost in the event trace that were not recorded.
+[opt_def [cmd flush_timer]]
+Number of seconds after which buffers are automatically flushed.
+[opt_def [cmd free_buffers]]
+Number of free buffers in the event trace.
+[opt_def [cmd log_buffers_lost]]
+Number of buffers lost without being consumed.
+[opt_def [cmd logfile]]
+The log file associated with the event trace.
+[opt_def [cmd logfile_mode]]
+Bit flags indicating logging mode for the event trace.
+[opt_def [cmd logger_tid]]
+Thread id of thread doing the logging for the event trace.
+[opt_def [cmd max_buffers]]
+Maximum number of buffers that can be allocated for the event trace.
+[opt_def [cmd max_file_size]]
+Maximum size specified for the file in megabytes.
+[opt_def [cmd min_buffers]]
+Minimum number of buffers that can be allocated for the event trace.
+[opt_def [cmd buffer_count]]
+Number of buffers in use.
+[opt_def [cmd real_time_buffers_lost]]
+Number of buffers used for real time tracing that could not be written
+to the log file.
+[opt_def [cmd trace_guid]]
+The GUID associated with the event trace.
+[opt_def [cmd trace_name]]
+The name of the event trace.
+[list_end]
+
+[call [cmd etw_start_kernel_trace] [arg EVENTCLASSES] [opt [arg options]]]
+Starts an event trace with the Windows kernel provider. 
+Returns a pair consisting of a event trace handle and a dictionary containing
+the event trace properties.
+Windows only
+supports one such event trace so an error is generated if another
+application already has a kernel trace open. In addition, the
+process must be running under an account
+with administrative privileges or as a service running as LocalSystem.
+[nl]
+[arg EVENTCLASSES] specifies the kernel events that are to be
+captured and should be a list containing elements
+from the table below. Note that the captured events may include
+other events that are not included in [arg EVENTCLASSES].
+
+[list_begin opt]
+[opt_def [const alpc]] Advanced local procedure calls (Vista and later)
+[opt_def [const contextswitch]] Thread context switches (Vista and later)
+[opt_def [const dbgprint]] Kernel DbgPrint calls
+[opt_def [const diskfileio]] File I/O
+[opt_def [const diskio]] Disk I/O
+[opt_def [const dispatcher]] Thread transitions to ready state (Windows 7 and later)
+[opt_def [const dpc]] Device deferred procedure calls (Vista and later)
+[opt_def [const driver]] Device driver requests (Vista and later)
+[opt_def [const hardfault]] Hard page faults
+[opt_def [const imageload]] Image loading
+[opt_def [const interrupt]] Interrupt service routines (Vista and later)
+[opt_def [const pagefault]] Page faults
+[opt_def [const process]] Processes events
+[opt_def [const processcounter]] Process counters (Vista and later)
+[opt_def [const profile]] Processor profiling samples (Vista and later)
+[opt_def [const registry]] Registry access
+[opt_def [const splitio]] Split I/O events (Vista and later)
+[opt_def [const sysconfig]] Includes events describing system configuration.
+These are collected when the trace is stopped.
+[opt_def [const systemcall]] System calls (Vista and later)
+[opt_def [const tcpip]] TCP and UDP events
+[opt_def [const thread]] Thread events
+[opt_def [const vamap]] Virtual address map and unmap events (Windows 8/Windows Server 2012 and later)
+[opt_def [const virtualalloc]] Virtual memory allocation (Windows 7/Windows Server 2008 R2 and later)
+[list_end]
+
+See
+[uri #etw_start_trace [cmd etw_start_trace]] for a description of the
+options that may be specified. However, note [const rotate]
+is not a valid value for [cmd -filemode] for kernel traces
+and the [cmd -usepagedmemory] option must not be specified.
+
+[call [cmd etw_start_trace] [arg TRACENAME] [opt [arg options]]]
+Starts a new ETW trace with the name [arg TRACENAME]
+and returns a handle to it.
+[nl]
+The following
+options may be specified:
+
+[list_begin opt]
+
+[opt_def [cmd -buffersize] [arg BUFFERSIZE]]
+Specifies the size in kilobytes of the buffers used in the event trace. This is only
+an requested size and will be adjusted by ETW.
+[opt_def [cmd -clockresolution] [arg RESOLUTION]]
+The clock resolution to use when timestamping events in the event trace.
+Specify [arg RESOLUTION] as [const qpc] to use the query performance
+counter. This is the highest resolution but is relatively expensive.
+Specify
+[const system] to use system time. This is lower resolution but is
+cheaper in run time cost and is the default.
+Specify [const cpucycle] to use the CPU
+cycle counter. This has the highest resolution and is the cheapest
+to obtain. However it can be very inaccurate as it is affected by power
+and temperature management features of the CPU.
+[opt_def [cmd -flushtimer] [arg SECONDS]]
+Normally, ETW buffers are flushed as they become full. Use this option
+to force flushing of buffers every [arg SECONDS] seconds even when
+they are not full. However note that ETW flushes entire buffers to
+log files so flushing half empty buffers can greatly increase the log
+file size. Generally, use this option only for real time event traces.
+[opt_def [cmd -filemode] [arg FILEMODE]]
+Specifies the file logging mode. [arg FILEMODE] must be one of the
+following values:
+[list_begin opt]
+[opt_def [const append]]
+Events are written sequentially to a log file. Unlike [const sequential]
+mode, existing log files are appended to instead of being overwritten.
+The [cmd -clockresolution] option must be [const system] and
+options [cmd -realtime], [cmd -private] or [cmd -privateinproc] must
+be false. Moreover, various configuration parameters like buffer size
+must be the same as those of the existing log file.
+[opt_def [const circular]]
+This is the default mode.
+Events are written to the log file in circular fashion with newer events
+overwriting older events once the maximum file size is reached.
+If option [cmd -maxfilesize] is not specified, it is defaulted to 1MB.
+[opt_def [const rotate]]
+Sequentially writes to the log file and automatically creates a new file
+when the maximum file size is reached.
+The path specified with the [cmd -logfile] option must contain the
+string [const %d] which is replaced with a incremented counter every time
+a new file is created.
+If option [cmd -maxfilesize] is not specified, it is defaulted to 1MB.
+On Windows versions prior to Windows 7 and Windows 2008 R2, the
+[cmd -private] and [cmd -privateinproc] options are not compatible with
+this mode.
+[opt_def [const sequential]]
+Writes events sequentially to a log file. Existing log files are overwritten.
+If option [cmd -maxfilesize] is specified,
+logging stops when the maximum size is reached. Otherwise, the file will
+grow as needed except for some system defined limits if it resides on the
+system drive.
+[list_end]
+[opt_def [cmd -logfile] [arg FILEPATH]]
+The name of the log file in which to write events. This option need
+not be specified if the event trace is only a real time trace. [arg FILEPATH]
+may be relative or absolute but should have the [const .etl] extension.
+Depending on the other options specified, the actual file name may be
+modified.
+[opt_def [cmd -maxbuffers] [arg MINBUFS]]
+Specifies the minimum number of buffers to allocate.
+[opt_def [cmd -minbuffers] [arg MAXBUFS]]
+Specifies the maximum number of buffers to allocate.
+[opt_def [cmd -maxfilesize] [arg MAXMB]]
+The maximum size of the log file in megabytes.
+[opt_def [cmd -paged] [arg BOOLEAN]]
+If [const true], paged memory is used for the event trace buffers.
+If [const false] (default), non-paged memory is used.
+Kernel-mode providers cannot log to paged buffers. If these are not
+used in the trace, it is recommended to set this option to [const true]
+as non-paged memory is a limited resource.
+
+[opt_def [cmd -preallocate] [arg BOOLEAN]]
+If [const true], any required file space is preallocated. Default is 
+[const false].
+
+[opt_def [cmd -private] [const BOOLEAN]]
+If [const true], creates a private event trace to which only 
+threads within the provider's
+process can log events. There can be only one private event trace 
+per process.
+On Windows Vista and later, only processes running as LocalSystem and
+elevated processes can create private event traces. On earlier versions
+of Windows, processes in the [const "Performance Log Users"] group could
+also create private traces.
+When multiple processes
+register the provider, any log files created are appended with the PID
+of the process except for the one created by the first process.
+This option cannot be used with [cmd -realtime]. On Windows versions
+prior to Windows 7, this option cannot be used if [cmd -filemode] is
+specified as [const rotate].
+[opt_def [cmd -privateinproc] [arg BOOLEAN]]
+If [const true], creates an in-process event trace
+and enforces that only the process
+that registered a provider guid can start a trace with that guid.
+Unlike the [cmd -private] option, processes need not be running in
+privileges accounts and up to three traces can be created.
+Default is [const false]. Requires Vista or later.
+[opt_def [cmd -realtime] [arg BOOLEAN]]
+If [const true], events are delivered to any subscribed consumers in real time
+when event buffers are flushed. Certain guidelines have to be followed
+when real time mode is requested. Please refer to 
+[uri http://msdn.microsoft.com/en-us/library/aa363802(v=vs.85).aspx "Windows SDK ETW documentation"].
+This option cannot be used with [cmd -private] and [cmd -privateinproc].
+Default is [const false].
+[opt_def [cmd -secure] [arg BOOLEAN]]
+If [const true], logging to the event trace requires the TRACELOG_LOG_EVENT 
+permission. Default is [const false].Requires Vista or later.
+[opt_def [cmd -sequence] [arg SEQUENCETYPE]]
+Events logged with the [cmd TraceMessage] Windows API can contain a sequence
+number. If [arg SEQUENCETYPE] is [const none] (default), no sequence number
+is added to the event. If [arg SEQUENCETYPE] is [const global], the added
+sequence number is global across multiple event traces and if [const local],
+it is unique to a trace.
+[opt_def [cmd -traceguid] [arg GUID]] The GUID to assign to the event trace.
+If not specified, Windows will internally generate the GUID for the
+trace. The primary purpose for specifying this is to allow
+for setting access control on the trace.
+
+[list_end]
+For more details on the options, refer to the
+[uri http://msdn.microsoft.com/en-us/library/aa363802(v=vs.85).aspx "Windows SDK ETW documentation"].
+
+[call [cmd etw_stop_trace] [arg TRACE]]
+Stops an event trace. 
+The trace [arg TRACE] may be specified either by its name
+or by its handle (as returned by [uri #etw_start_trace [cmd etw_start_trace]]).
+[nl]
+The command returns a dictionary containing the stopped trace's
+status in the same format as [uri #etw_query_trace [cmd etw_query_trace]].
+
+[call [cmd etw_update_trace] [arg TRACE] [opt [arg options]]]
+Updates the attributes associated with an event trace. If the trace is inactive
+(e.g. from a log files without an associated active trace), the command
+has no effect.
+The trace [arg TRACE] may be specified either by its name
+or by its handle (as returned by [uri #etw_start_trace [cmd etw_start_trace]]).
+
+The command returns a dictionary containing a trace's settings 
+and status in the same format as
+[uri #etw_query_trace [cmd etw_query_trace]].
+
+The following event trace attributes may be updated:
+
+[list_begin opt]
+[opt_def [cmd -enableflags] [arg FLAGS]]
+Changes the enable flags for the event trace. Only applies if
+the trace is a "NT Kernel Logger" trace.
+[opt_def [cmd -flushtimer] [arg TIMERVAL]]
+If non-0, changes the number of seconds after which buffers are 
+automatically flushed.
+[opt_def [cmd -logfile] [arg FILEPATH]]
+If specified, changes the log file associated with the trace.
+[opt_def [cmd -maxbuffers] [arg COUNT]]
+If non-0, changes the maximum number of buffers that can be allocated for 
+the trace.
+[opt_def [cmd -realtime] [arg BOOLEAN]]
+If [const true], turns on realtime mode, else turns it off. Note if
+the command is called to update other options, and
+this option is not specified, it results in the real time mode being
+turned off.
+[list_end]
+
+[list_end]
+
+[section "ETW Provider Commands"]
+
+This section describes the commands that allow implementation of
+an ETW provider.
+
+[list_begin definitions]
+
+[call [cmd etw_command_tracker] [arg HPROVIDER] [arg OLDNAME] [arg NEWNAME] [arg OP]]
+Writes a CommandTrace event to the event trace associated with
+the provider handle [arg HPROVIDER] returned
+by [uri #etw_twapi_provider_register [cmd etw_twapi_provider_register]].
+The remaining arguments correspond to those passed to the callback
+function by Tcl's [cmd "trace add command"] command. 
+[cmd etw_command_tracker] can be used as the callback similar
+to the example in [sectref "Tcl ETW traces"].
+
+[call [cmd etw_execution_tracker] [arg HPROVIDER] [arg ARGS...]]
+Writes a ExecutionTrace event to the event trace associated with
+the provider handle [arg HPROVIDER] returned
+by [uri #etw_twapi_provider_register [cmd etw_twapi_provider_register]].
+The remaining arguments correspond to those passed to the callback
+function by Tcl's [cmd "trace add execution"] command. 
+[cmd etw_execution_tracker] can be used as the callback similar
+to the example in [sectref "Tcl ETW traces"].
+
+[call [cmd etw_install_twapi_mof]]
+Installs the TWAPI Managed Object Format (MOF) definition for the event
+trace formats used by TWAPI. This command needs to be called on the
+system where a ETW consumer will be parsing TWAPI logged events.
+The definition can be removed by calling 
+[uri #etw_uninstall_twapi_mof [cmd etw_uninstall_twapi_mof]].
+
+[call [cmd etw_log_message] [arg HPROVIDER] [arg MESSAGE] [opt [arg LEVEL]]]
+Writes an event containing the [arg MESSAGE] string to the event trace
+attached to the provider handle [arg HPROVIDER] returned
+by [uri #etw_twapi_provider_register [cmd etw_twapi_provider_register]].
+[arg LEVEL] indicates the severity level at which the message is to be
+logged. [arg LEVEL] must be an integer or one of the following
+constants [const verbose] (5), [const informational] (4), 
+[const warning] (3), [const error] (2) or [const fatal] (1).
+By default, the message is logged at level 4 (informational).
+
+[call [cmd etw_twapi_provider_register]]
+
+Registers the TWAPI ETW provider so that it can be added to an event trace.
+The name and GUID corresponding to the provider can be retrieved through
+[uri #etw_twapi_provider_name [cmd etw_twapi_provider_name]] and
+[uri #etw_twapi_provider_guid [cmd etw_twapi_provider_guid]].
+These can then be passed to
+[uri #etw_enable_provider [cmd etw_enable_provider]] or any ETW controller
+program to add the TWAPI provider to a trace. Returns a handle
+to the registered provider.
+[nl]
+The provider can be unregistered by calling
+the [uri #etw_unregister_provider [cmd etw_unregister_provider]] command.
+
+[call [cmd etw_twapi_eventclass_name]]
+Returns the human readable name of the ETW event class used by
+[uri #etw_log_message [cmd etw_log_message]].
+
+[call [cmd etw_twapi_eventclass_guid]]
+Returns the GUID of the ETW event class used by
+[uri #etw_log_message [cmd etw_log_message]].
+
+[call [cmd etw_twapi_provider_guid]]
+Returns the GUID for the TWAPI ETW provider. This can be passed to
+[uri #etw_enable_provider [cmd etw_enable_provider]] or any ETW controller
+program to add the TWAPI provider to an event trace.
+
+[call [cmd etw_twapi_provider_name]]
+Returns the TWAPI ETW provider name.
+
+[call [cmd etw_variable_tracker] [arg HPROVIDER] [arg NAME1] [arg NAME2] [arg OP]]
+Writes a VariableTrace event to the event trace associated with
+the provider handle [arg HPROVIDER] returned
+by [uri #etw_twapi_provider_register [cmd etw_twapi_provider_register]].
+The remaining arguments correspond to those passed to the callback
+function by Tcl's [cmd "trace add variable"] command and this command
+can be used as the callback as in the example
+in [sectref "Tcl ETW traces"].
+
+[call [cmd etw_uninstall_twapi_mof]]
+Uninstalls the TWAPI Managed Object Format (MOF) definition for the event
+trace formats used by TWAPI.
+
+[call [cmd etw_unregister_provider] [arg PROVIDERHANDLE]]
+Unregisters a previously registered provider. [arg PROVIDERHANDLE] is
+a handle returned by a previous call to
+[uri #etw_twapi_provider_register [cmd etw_twapi_provider_register]] command.
+
+
+[list_end]
+
+[section "ETW Consumer Commands"]
+
+This section describes the commands that deal with consuming events from ETW.
+
+[list_begin definitions]
+
+[call [cmd etw_close_formatter] [arg FORMATTER]]
+Closes and releases resources associated with a ETW formatter handle
+returned by a previous call to
+[uri #etw_open_formatter [cmd etw_open_formatter]].
+
+[call [cmd etw_dump_to_list] [arg "LOGSOURCE ?LOGSOURCE ...?"]]
+Extracts events from one or more ETW log files or real time trace,
+returning them as a [uri base.html#recordarray "record array"].
+Each [arg LOGSOURCE] argument must be the path to a ETW log file or
+the name of a ETW real time trace. At most one real time trace
+can be specified.
+
+[call [cmd etw_dump_to_file] [opt [arg options]] [opt [arg "LOGSOURCE LOGSOURCE ..."]]]
+Extracts events from one or more ETW log files or real time trace
+and writes them out in
+human readable form. 
+Each [arg LOGSOURCE] argument must be the path to a ETW log file or
+the name of a ETW real time trace. At most one real time trace
+can be specified.
+[nl]
+The command takes the following options:
+[list_begin opt]
+[opt_def [cmd -format] [arg FORMAT]]
+Specifies the output format. [arg FORMAT] must be [const list] or [const csv].
+The CSV format requires that the Tcl package [cmd csv] be available.
+[opt_def [cmd -limit] [arg LIMIT]]
+Stops after [arg LIMIT] events are written.
+[opt_def [cmd -output] [arg OUTPUT]]
+Specifies where to write the events. [arg OUTPUT] may be a channel
+or a file path. If the latter, the file must not exist. The default
+is standard output.
+[opt_def [cmd -separator] [arg SEPARATOR]]
+Specifies the separator character to use. Only used for CSV format. Defaults
+to the comma character.
+[list_end]
+
+Each record written consists of a fixed number of fields followed by
+event-specific data. The fixed fields include the time stamp, the
+thread id, the process id, the event's MOF class and the event name.
+The remaining fields are varying in number and consist of alternating
+pairs of the field name from the event's MOF definition and the corresponding
+value. If the MOF definition is not available, the field name is
+[const MofData] and the corresponding value is a hexadecimal representation
+of the binary data.
+
+[call [cmd etw_close_session] [arg HTRACE]]
+Closes an event trace previously opened by a call to
+[uri #etw_open_file [cmd etw_open_file]] or 
+[uri #etw_open_session [cmd etw_open_session]].
+
+[call [cmd etw_format_event_message] [arg FORMATSTRING] [arg EVENTPROPERTIES]]
+Returns the message string constructed from [arg FORMATSTRING] by
+replacing the insert placeholders with the corresponding values from
+[arg EVENTPROPERTIES]. Normally, [arg FORMATSTRING] and [arg EVENTPROPERTIES]
+come from the [cmd message] and [cmd properties] fields returned by
+the [uri #etw_event [cmd etw_event]] command.
+
+[call [cmd etw_format_events] [arg FORMATTER] [opt "[arg BUFDESC] [arg EVENTLIST]..."]]
+Processes the list of raw ETW events and 
+returns a record array of formatted events.
+[arg BUFDESC] and [arg EVENTLIST] are the event buffer descriptor and
+the list of raw events for the event buffer as returned by
+[uri #etw_process_events [cmd etw_process_events]] or as passed
+to the [cmd -callback] option of that command.
+[nl]
+[arg FORMATTER] should be the handle to a formatter as returned by
+[uri #etw_open_formatter [cmd etw_open_formatter]].
+[nl]
+The command returns a [uri base.html#recordarray [cmd recordarray]]
+with the fields in the table below. The [cmd recordarray] commands
+can be used to access or transform the returned events.
+The value of a field may be the
+empty string if the logging application did not set it or if the field
+is not supported by the provider type.
+[list_begin opt]
+[opt_def [const -channel]]
+The numeric identifier for the event log channel to which the event
+was logged.
+[opt_def [const -channelname]]
+The name of the event log channel to which the event was logged.
+[opt_def [const -eventguid]]
+The GUID identifying the event. For manifest based events, this
+is empty.
+[opt_def [const -eventid]]
+The event identifier.
+[opt_def [const -kerneltime]]
+The elapsed execution time for kernel-mode instructions in 100ns units.
+If the event was logged from a private trace, this will be 0 as all
+time will be counted towards [const -usertime].
+[opt_def [const -keywordmask]]
+A bit mask corresponding to the keywords associated with the event.
+[opt_def [const -keywords]]
+The list of keywords associated with the event.
+[opt_def [const -level]]
+The numeric level at which the event was logged. Higher numeric levels are
+lower priority events.
+[opt_def [const -levelname]]
+The name of the logging level at which the event was logged. Since
+this is localized, [const -level] should be used for comparing event 
+logging levels.
+[opt_def [const -message]]
+The message associated with the event. This may contain string inserts
+for event parameters. Use the 
+[uri #etw_format_event_message [cmd etw_format_event_message]]
+to retrieve the fully constructed message.
+[opt_def [const -opcode]]
+The numeric opcode for the event, generally identifying one step
+in a sequence of operations.
+[opt_def [const -opcodename]]
+The string name for the numeric opcode. For MOF based events, this
+is the event type.
+[opt_def [const -pid]]
+The process identifier of the process that logged the event. This will be -1
+if the event was not associated with any process.
+[opt_def [const -properties]]
+A dictionary containing additional event parameters. The keys of the
+dictionary are dependent on the specific event type.
+[opt_def [const -providerguid]]
+The GUID identifying the provider.
+[opt_def [const -providername]]
+The name of the provider. For classical MOF based provider, this
+is the name of the MOF class.
+[opt_def [const -sid]]
+The SID of the logging process or an empty string if not available.
+[opt_def [const -task]]
+The numeric task identifying the general area within the application.
+[opt_def [const -taskname]]
+The string name associated with [const task].
+[opt_def [const -tid]]
+The thread identifier of the process that logged the event. This will be -1
+if the event was not associated with any thread.
+[opt_def [const -timecreated]]
+The time that the event was logged in system time format.
+Use [uri base.html#large_system_time_to_secs_since_1970 [cmd large_system_time_to_secs_since_1970]]
+to convert this to Tcl [cmd clock] format.
+[opt_def [const -usertime]]
+The elapsed execution time for user-mode instructions in 100ns units.
+[opt_def [const -version]]
+The version of the event. Together with [const id], this identifies a 
+specific event within a provider.
+
+[list_end]
+
+[call [cmd etw_open_file] [arg PATH]]
+Opens a log file containing ETW events and returns a trace handle to it
+which can be passed to [uri #etw_process_events [cmd etw_process_events]].
+The handle must be closed later by passing it to
+[uri #etw_close_session [cmd etw_close_session]].
+
+[call [cmd etw_open_formatter]]
+Returns a handle to a ETW event formatter that can be passed to
+[uri #etw_format_events [cmd etw_format_events]] for formatting events.
+When no longer needed, the returned handle must be passed
+to [uri #etw_close_formatter [cmd etw_close_formatter]] so that
+associated resources may be released.
+
+[call [cmd etw_open_session] [arg SESSIONNAME]]
+Opens a real time ETW trace and returns a session handle to it
+which can be passed to [uri #etw_process_events [cmd etw_process_events]].
+The handle must be closed later by passing it to
+[uri #etw_close_session [cmd etw_close_session]].
+
+[call [cmd etw_process_events] [opt "[cmd -callback] [arg CALLBACK]"] [opt "[cmd -start] [arg STARTTIME]"] [opt "[cmd -end] [arg ENDTIME]"] [arg HTRACE] [opt [arg HTRACE...]]]
+Processes events recorded in one or more event traces.
+The handles [arg HTRACE] are handles
+returned by [uri #etw_open_file [cmd etw_open_file]] or 
+[uri #etw_open_session [cmd etw_open_session]].
+[nl]
+
+If [cmd -callback] is not specified, the command returns a
+list consisting of alternative buffer descriptors and a raw event list.
+Each pair should be passed to [uri #etw_format_events [cmd etw_format_events]]
+which will in turn return a list of formatted events.
+
+If [cmd -callback] is specified,
+the events are passed to the [arg CALLBACK] command prefix.
+
+[nl]
+When ETW begins processing events, the callback is invoked repeatedly until
+there are no more unread events in the trace. On each invocation, two
+additional arguments are appended to the callback command prefix - the
+event buffer descriptor, and a list of raw event records. 
+
+The callback should pass both
+these arguments to [uri #etw_format_events [cmd etw_format_events]] which
+in turn will return a record array of formatted events.
+
+[nl]
+To terminate processing of events before all events from the traces are
+consumed, the callback can execute
+[example "return -code break"]
+The options [cmd -start] and [cmd -end] can be specified to limit the
+time interval for which events are processed. Both
+[arg STARTTIME] and [arg ENDTIME] must be specified in the same format as
+[uri osinfo.html\#get_system_time [cmd get_system_time]]. You can use
+[uri base.html#secs_since_1970_to_large_system_time [cmd secs_since_1970_to_large_system_time]]
+to convert the format used by Tcl's [cmd clock] command to this format.
+
+[list_end]
+
+[keywords "ETW" "event tracing" "tracing"]
+
+[manpage_end]

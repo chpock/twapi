@@ -1,0 +1,93 @@
+[comment {-*- tcl -*- doctools manpage}]
+[manpage_begin "Microsoft Windows Installer" n ""]
+[copyright "2007-2018 Ashok P. Nadkarni"]
+[moddesc "Microsoft Windows Installer support"]
+[titledesc "Commands for accessing Microsoft Windows Installer"]
+[require twapi_msi]
+[description]
+
+[emph {
+    Incompatibility note: The Windows Installer support in TWAPI 4.3 replaces
+    the experimental module in previous versions of TWAPI.
+}]
+
+[para]
+Support for Windows Installer functionality is provided through the
+general COM interface provided by the [uri com.html [cmd twapi_com]]
+module. 
+For details about Windows Installer components, properties and methods,
+consult the Windows Installer documentation. These can then
+be invoked using the [cmd twapi_com] interfaces.
+The example below, illustrating how to execute a SQL script against
+a Windows Installer package, demonstrates such usage.
+
+[para]
+First we get hold of the Windows Installer component itself.
+
+[example_begin]
+% package require twapi_msi
+4.3b0
+% set msi [lb]comobj WindowsInstaller.Installer[rb]
+::oo::Obj78
+[example_end]
+
+Then we have it open our sample Windows Installer MSI package.
+[example_begin]
+% set db [lb]$msi OpenDatabase ../tests/sample.msi 0[rb]
+::oo::Obj80
+[example_end]
+
+Now a crucial step is that because the Windows Installer components
+do not support runtime type information interfaces, we have to explicitly
+declare the type of the component as described in the
+[uri com.html#declaringcomponenttypes [cmd "twapi_com"]] documentation.
+
+[example_begin]
+% windowsinstaller::declare Database $db
+[example_end]
+
+We can now invoke methods on the object, in this case creating a
+[cmd View] based on a SQL query. ([cmd Database], [cmd View] etc. are all described in the Windows Installer documentation.)
+
+[example_begin]
+% set view [lb]$db OpenView "select Title, Description from Feature where Feature='Complete'"[rb]
+::oo::Obj82
+[example_end]
+
+Again, we have to declare the type of the returned object. This time, we use
+an alternative method for the purpose.
+
+[example_begin]
+% $view -instanceof windowsinstaller::View
+[example_end]
+
+We can now run the SQL query and fetch the results.
+
+[example_begin]
+% $view Execute
+% set rec [lb]$view Fetch[rb]
+::oo::Obj84
+[example_end]
+
+Further proceeding in a similar fashion we print the results.
+
+[example_begin]
+% $rec -instanceof windowsinstaller::Record
+% $rec StringData 1
+Windows Inspection Tool Set
+% $rec -destroy;                # All COM objects have to be destroyed
+% set rec [lb]$view Fetch[rb];  # Fetch the next
+::twapi::comobj_null;           # No more
+[example_end]
+
+Finally, we have to clean up after ourselves as required by COM.
+
+[example_begin]
+% $view -destroy
+% $db -destroy
+% $msi -destroy
+[example_end]
+
+[keywords "Windows Installer" MSI installer]
+
+[manpage_end]
