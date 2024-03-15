@@ -2160,7 +2160,7 @@ Tcl_Obj *ObjFromSYSTEM_POWER_STATUS(SYSTEM_POWER_STATUS *spsP)
     objv[0] = ObjFromInt(spsP->ACLineStatus);
     objv[1] = ObjFromInt(spsP->BatteryFlag);
     objv[2] = ObjFromInt(spsP->BatteryLifePercent);
-#if _MSC_VER >= 1900 || (defined(__MINGW32__) && __MINGW64_VERSION_MAJOR >= 7)
+#if _MSC_VER >= 1900 || defined(HAVE_SYSTEM_STATUS_FLAG)
     objv[3] = ObjFromInt(spsP->SystemStatusFlag);
 #else
     objv[3] = ObjFromInt(spsP->Reserved1);
