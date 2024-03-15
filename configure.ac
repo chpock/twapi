@@ -84,7 +84,7 @@ TEA_ADD_STUB_SOURCES([])
 CLEANFILES="$CLEANFILES twapi_entry.tcl"
 if test "${TEA_PLATFORM}" = "windows" ; then
 
-    AC_CHECK_MEMBER([struct SYSTEM_POWER_STATUS.SystemStatusFlag], [
+    AC_CHECK_MEMBER([struct _SYSTEM_POWER_STATUS.SystemStatusFlag], [
         AC_DEFINE(HAVE_SYSTEM_STATUS_FLAG)
     ], [], [[#include <windows.h>]])
 
