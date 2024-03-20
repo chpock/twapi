@@ -747,10 +747,8 @@ int Twapi_SHChangeNotify(
     switch (event_id) {
     case SHCNE_ASSOCCHANGED:
         /* Both dwItem1 and dwItem2 must be NULL (already set) */
-        if (! (flags & SHCNF_IDLIST)) {
-            /* SDK says this should be set */
-            goto invalid_flags_error;
-        }
+        /* SDK says this should be set to SHCNF_IDLIST */
+        flags = (flags & ~SHCNF_TYPE) | SHCNF_IDLIST;
         break;
 
     case SHCNE_ATTRIBUTES:
